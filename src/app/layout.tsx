@@ -4,6 +4,10 @@ import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { Toaster } from "@/components/ui/sonner";
+import { Suspense } from "react";
+
+// MÁGICA: Força o Vercel a tratar a aplicação como Dinâmica (sem tentar gerar HTML estático no build)
+export const dynamic = "force-dynamic";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -26,9 +30,11 @@ export default function RootLayout({
           <div className="flex-1 ml-64 flex flex-col relative">
             <Topbar />
             
-            {/* O padding superior de 24 (pt-24) compensa a altura fixa da Topbar (h-16 = 4rem) */}
             <main className="flex-1 p-8 pt-24 min-h-[200vh]"> 
-              {children}
+              {/* Suspense Global para lidar com qualquer parâmetro de URL em qualquer página */}
+              <Suspense fallback={<div className="p-10 text-center text-slate-500 animate-pulse font-medium">Carregando interface...</div>}>
+                {children}
+              </Suspense>
             </main>
           </div>
         </div>
