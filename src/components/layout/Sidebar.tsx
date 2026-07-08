@@ -19,10 +19,11 @@ export function Sidebar() {
   return (
     <aside className="fixed top-0 left-0 z-40 h-screen w-64 border-r bg-white flex flex-col shadow-sm">
       <div className="flex h-16 items-center border-b px-6">
-        <div className="flex items-center gap-2 font-bold text-lg text-primary">
+        {/* TWEAK 1: Logo agora é um link que redireciona para a home */}
+        <Link href="/" className="flex items-center gap-2 font-bold text-lg text-primary hover:opacity-75 transition-opacity">
           <Stethoscope className="h-6 w-6 text-blue-600" />
           <span>OftalmoHelper <span className="text-xs text-muted-foreground">v911</span></span>
-        </div>
+        </Link>
       </div>
       
       <nav className="flex-1 space-y-2 p-4 overflow-y-auto">
@@ -49,7 +50,7 @@ export function Sidebar() {
 
       <div className="p-4 border-t bg-slate-50">
         <p className="text-xs text-center text-slate-400">
-          © 2026 Oftalmo Clínica
+          © 2026 Henrique Business, com muito amor
         </p>
       </div>
     </aside>
