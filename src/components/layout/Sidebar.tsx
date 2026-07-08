@@ -22,7 +22,7 @@ export function Sidebar() {
         {/* TWEAK 1: Logo agora é um link que redireciona para a home */}
         <Link href="/" className="flex items-center gap-2 font-bold text-lg text-primary hover:opacity-75 transition-opacity">
           <Stethoscope className="h-6 w-6 text-blue-600" />
-          <span>OftalmoHelper <span className="text-xs text-muted-foreground">v911</span></span>
+          <span>OftalmoHelper <span className="textc-xs text-muted-foreground">v911</span></span>
         </Link>
       </div>
       
