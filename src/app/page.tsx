@@ -18,7 +18,7 @@ export default function Home() {
           Bem-vindo ao <span className="text-blue-600">OftalmoHelper</span>
         </h1>
         <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-          Acesse rapidamente os módulos abaixo para auxiliar no atendimento aos pacientes e agilizar o Call Center.
+          Acesse rapidamente os módulos abaixo para auxiliar no atendimento aos pacientes.
         </p>
       </div>
 
