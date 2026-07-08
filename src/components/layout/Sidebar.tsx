@@ -24,7 +24,7 @@ export function Sidebar() {
           <Stethoscope className="h-6 w-6 text-blue-600" />
           <span>OftalmoHelper <span className="textc-xs text-muted-foreground">v911</span></span>
         </Link>
-      </div>
+      </div> 
       
       <nav className="flex-1 space-y-2 p-4 overflow-y-auto">
         {navItems.map((item) => {
@@ -49,9 +49,9 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 border-t bg-slate-50">
-        <p className="text-xs text-center text-slate-400">
-          © 2026 Henrique Business, com muito amor
-        </p>
+        <a href="https://www.youtube.com/watch?v=OeLQOfb6IBU" className="text-xs text-center text-slate-400">
+          © 2026 Henrique Business
+        </a>
       </div>
     </aside>
   );
