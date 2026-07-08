@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Stethoscope, AlertCircle, Users, CheckCircle2, XCircle } from "lucide-react";
+import { Stethoscope, AlertCircle, Users, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,9 +26,10 @@ type Exame = {
   medico_exames: MedicoRelacionado[];
 };
 
-export default function ExamesPage() {
+// 1. Isolamos a lógica que usa o hook em um subcomponente
+function ExamesContent() {
   const searchParams = useSearchParams();
-  const highlightId = searchParams.get("id"); // Usado para focar num exame se vier de link externo
+  const highlightId = searchParams.get("id");
   
   const [exames, setExames] = useState<Exame[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -159,5 +160,19 @@ export default function ExamesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// 2. Exportamos a página envelopada no Suspense Boundary
+export default function ExamesPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center p-20 text-slate-500">
+        <Stethoscope className="h-8 w-8 animate-pulse text-blue-500 mr-2" />
+        <p>Carregando exames...</p>
+      </div>
+    }>
+      <ExamesContent />
+    </Suspense>
   );
 }

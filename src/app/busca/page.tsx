@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Search, Users, Stethoscope, ArrowRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 
-export default function BuscaGlobalPage() {
+// 1. Isolamos a lógica que usa o hook em um subcomponente
+function BuscaContent() {
   const searchParams = useSearchParams();
   const query = searchParams.get("q") || "";
 
@@ -28,14 +29,12 @@ export default function BuscaGlobalPage() {
 
       setIsLoading(true);
       
-      // Busca em Médicos (por nome ou especialidade)
       const { data: medicos } = await supabase
         .from("medicos")
         .select("id, nome, especialidade_principal")
         .or(`nome.ilike.%${query}%,especialidade_principal.ilike.%${query}%`)
         .limit(10);
 
-      // Busca em Exames (por nome, especialidade ou resumo)
       const { data: exames } = await supabase
         .from("exames")
         .select("id, nome, resumo")
@@ -79,7 +78,6 @@ export default function BuscaGlobalPage() {
         </div>
       ) : (
         <div className="space-y-10">
-          {/* Resultados de Médicos */}
           <section>
             <h2 className="text-xl font-semibold text-slate-800 border-b pb-2 mb-4 flex items-center gap-2">
               <Users className="h-5 w-5 text-slate-500" />
@@ -110,7 +108,6 @@ export default function BuscaGlobalPage() {
             )}
           </section>
 
-          {/* Resultados de Exames */}
           <section>
             <h2 className="text-xl font-semibold text-slate-800 border-b pb-2 mb-4 flex items-center gap-2">
               <Stethoscope className="h-5 w-5 text-slate-500" />
@@ -143,5 +140,19 @@ export default function BuscaGlobalPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// 2. Exportamos a página envelopada no Suspense Boundary
+export default function BuscaGlobalPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col items-center justify-center p-20 text-slate-500 gap-4">
+        <Search className="h-8 w-8 animate-pulse text-blue-500" />
+        <p>Carregando busca...</p>
+      </div>
+    }>
+      <BuscaContent />
+    </Suspense>
   );
 }
