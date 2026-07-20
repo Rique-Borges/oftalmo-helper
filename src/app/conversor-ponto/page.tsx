@@ -16,7 +16,9 @@ import {
   RefreshCw,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  X,
+  AlertCircle
 } from "lucide-react";
 
 // Interfaces de Tipo
@@ -51,11 +53,22 @@ export default function AfdConverter() {
   const [copied, setCopied] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Estados do Modal de Exportação
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [exportEmployee, setExportEmployee] = useState<string>("all");
+  const [exportStartDate, setExportStartDate] = useState<string>("");
+  const [exportEndDate, setExportEndDate] = useState<string>("");
+  const [exportError, setExportError] = useState<string>("");
+
+  // Estados do Combobox Pesquisável (Seleção de Colaborador na Exportação)
+  const [isComboOpen, setIsComboOpen] = useState<boolean>(false);
+  const [comboSearch, setComboSearch] = useState<string>("");
+
   // Estados de Ordenação
   const [sortField, setSortField] = useState<SortField>("dateObj");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  // Estados do Calendário
+  // Estados do Calendário Principal
   const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState<number>(new Date().getMonth());
 
@@ -159,7 +172,22 @@ export default function AfdConverter() {
       setEmployeeMap(tempEmployees);
       setCurrentPage(1);
 
+      // Define os intervalos de data iniciais com base no conteúdo lido
       if (tempPunches.length > 0) {
+        const dates = tempPunches.map(p => p.dateObj.getTime());
+        const minD = new Date(Math.min(...dates));
+        const maxD = new Date(Math.max(...dates));
+
+        const formatDateForInput = (d: Date) => {
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          return `${year}-${month}-${day}`;
+        };
+
+        setExportStartDate(formatDateForInput(minD));
+        setExportEndDate(formatDateForInput(maxD));
+
         const newestDate = tempPunches[0].dateObj;
         setCurrentYear(newestDate.getFullYear());
         setCurrentMonth(newestDate.getMonth());
@@ -167,7 +195,7 @@ export default function AfdConverter() {
     };
   };
 
-  // Processamento e agrupamento de colaboradores únicos para o novo View
+  // Processamento e agrupamento de colaboradores únicos
   const collaboratorsList = useMemo<EmployeeRow[]>(() => {
     const countsMap = new Map<string, number>();
     punches.forEach(p => {
@@ -184,7 +212,6 @@ export default function AfdConverter() {
       });
     });
 
-    // Caso existam colaboradores nas batidas que não foram mapeados no Tipo 5
     countsMap.forEach((count, rawId) => {
       if (!employeeMap.has(rawId)) {
         list.push({
@@ -199,7 +226,7 @@ export default function AfdConverter() {
     return list;
   }, [punches, employeeMap]);
 
-  // Filtro básico compartilhado
+  // Filtro básico de busca de colaboradores
   const filteredCollaborators = useMemo(() => {
     return collaboratorsList.filter(c => 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -207,7 +234,15 @@ export default function AfdConverter() {
     );
   }, [collaboratorsList, searchTerm]);
 
-  // Processamento e filtros das Batidas de Ponto
+  // Filtro de colaboradores dinâmico para a pesquisa dentro da caixa de seleção (Combobox)
+  const filteredComboEmployees = useMemo(() => {
+    return collaboratorsList.filter(emp => 
+      emp.name.toLowerCase().includes(comboSearch.toLowerCase()) ||
+      emp.cleanId.includes(comboSearch)
+    );
+  }, [collaboratorsList, comboSearch]);
+
+  // Filtro básico de busca de batidas
   const filteredPunches = useMemo(() => {
     return punches.filter(p => {
       const matchesSearch = 
@@ -224,7 +259,7 @@ export default function AfdConverter() {
     });
   }, [punches, searchTerm, selectedDate]);
 
-  // Ordenação dinâmica do histórico de batidas
+  // Ordenação dinâmica das batidas na visualização
   const sortedPunches = useMemo(() => {
     const sorted = [...filteredPunches];
     sorted.sort((a, b) => {
@@ -246,7 +281,7 @@ export default function AfdConverter() {
     return sorted;
   }, [filteredPunches, sortField, sortOrder]);
 
-  // Paginação das batidas
+  // Paginação
   const itemsPerPage = 15;
   const totalPages = Math.ceil(sortedPunches.length / itemsPerPage);
   const paginatedPunches = useMemo(() => {
@@ -254,7 +289,6 @@ export default function AfdConverter() {
     return sortedPunches.slice(startIndex, startIndex + itemsPerPage);
   }, [sortedPunches, currentPage]);
 
-  // Gatilho para alteração de colunas ordenáveis
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
@@ -265,7 +299,6 @@ export default function AfdConverter() {
     setCurrentPage(1);
   };
 
-  // Ícone auxiliar de ordenação
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field) {
       return <ArrowUpDown size={14} className="ml-1 text-slate-400 inline" />;
@@ -275,7 +308,7 @@ export default function AfdConverter() {
       : <ArrowDown size={14} className="ml-1 text-indigo-600 inline" />;
   };
 
-  // Métricas gerais das batidas carregadas
+  // Métricas gerais
   const metrics = useMemo(() => {
     if (punches.length === 0) return { total: 0, employees: 0, dateRange: "-" };
     
@@ -294,7 +327,6 @@ export default function AfdConverter() {
     };
   }, [punches]);
 
-  // Contagem para sinalizadores do calendário
   const punchesCountByDay = useMemo(() => {
     const counts: Record<string, number> = {};
     punches.forEach(p => {
@@ -337,32 +369,7 @@ export default function AfdConverter() {
     }
   };
 
-  // Exportar para Excel (CSV otimizado em Português) - Removida coluna financeira antiga
-  const handleExportCSV = () => {
-    if (sortedPunches.length === 0) return;
-
-    const headers = ["Nome", "Identificação (CPF/PIS)", "Data e Hora"];
-    const rows = sortedPunches.map(p => [
-      p.name,
-      p.cleanId,
-      p.formattedDate
-    ]);
-
-    const csvContent = 
-      "\uFEFF" + 
-      [headers.join(";"), ...rows.map(row => row.map(val => `"${val.replace(/"/g, '""')}"`).join(";"))].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `batidas_ponto_${currentYear}_${currentMonth + 1}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Copiar tabela de batidas (Formatada para Ctrl+V no Excel) - Removida coluna financeira antiga
+  // Copiar tabela visível na tela para a área de transferência
   const handleCopyToClipboard = () => {
     if (sortedPunches.length === 0) return;
 
@@ -377,6 +384,65 @@ export default function AfdConverter() {
     });
   };
 
+  // Processa e exporta o CSV personalizado após a confirmação no Modal
+  const handleConfirmExport = () => {
+    setExportError("");
+    
+    const start = exportStartDate ? new Date(exportStartDate + "T00:00:00") : null;
+    const end = exportEndDate ? new Date(exportEndDate + "T23:59:59") : null;
+
+    // Filtra aplicando as regras selecionadas na janela flutuante
+    const filteredToExport = punches.filter(p => {
+      const matchesEmployee = exportEmployee === "all" || p.rawId === exportEmployee;
+      const matchesStart = !start || p.dateObj >= start;
+      const matchesEnd = !end || p.dateObj <= end;
+      return matchesEmployee && matchesStart && matchesEnd;
+    });
+
+    if (filteredToExport.length === 0) {
+      setExportError("Nenhuma marcação encontrada no período e filtros informados.");
+      return;
+    }
+
+    // Geração de CSV estruturado
+    const headers = ["Nome", "Identificação (CPF/PIS)", "Data e Hora"];
+    const rows = filteredToExport.map(p => [
+      p.name,
+      p.cleanId,
+      p.formattedDate
+    ]);
+
+    const csvContent = 
+      "\uFEFF" + 
+      [headers.join(";"), ...rows.map(row => row.map(val => `"${val.replace(/"/g, '""')}"`).join(";"))].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    
+    // Nome dinâmico para o arquivo exportado
+    let fileNameStr = "fechamento_ponto";
+    if (exportEmployee !== "all") {
+      const nameClean = (employeeMap.get(exportEmployee) || "colaborador")
+        .toLowerCase()
+        .replace(/\s+/g, "_")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      fileNameStr += `_${nameClean}`;
+    }
+    if (exportStartDate && exportEndDate) {
+      fileNameStr += `_de_${exportStartDate}_a_${exportEndDate}`;
+    }
+
+    link.setAttribute("download", `${fileNameStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setIsExportModalOpen(false);
+  };
+
   const clearFilters = () => {
     setSelectedDate(null);
     setSearchTerm("");
@@ -384,7 +450,7 @@ export default function AfdConverter() {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto p-4 md:p-6 space-y-6 text-slate-800">
+    <div className="w-full max-w-7xl mx-auto p-4 md:p-6 space-y-6 text-slate-800 relative">
       
       {/* Top Banner & Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
@@ -651,8 +717,12 @@ export default function AfdConverter() {
                         )}
                       </button>
                       <button
-                        onClick={handleExportCSV}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition shadow-sm"
+                        onClick={() => {
+                          setExportError("");
+                          setComboSearch("");
+                          setIsExportModalOpen(true);
+                        }}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition shadow-sm"
                       >
                         <FileSpreadsheet size={14} /> Exportar CSV
                       </button>
@@ -784,6 +854,198 @@ export default function AfdConverter() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* ======================================================= */}
+      {/* MODAL DE EXPORTAÇÃO PERSONALIZADA (ESTILO SHADCN UI) */}
+      {/* ======================================================= */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          
+          {/* Fundo Desfocado (Backdrop Overlay) */}
+          <div 
+            className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-200" 
+            onClick={() => {
+              setIsExportModalOpen(false);
+              setIsComboOpen(false);
+            }}
+          />
+          
+          {/* Caixa de Diálogo (Modal Content) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 relative z-10 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-4">
+            
+            {/* Cabeçalho */}
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-950">Exportar para o Financeiro</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Filtre por colaborador e defina o período desejado para o fechamento.
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsExportModalOpen(false);
+                  setIsComboOpen(false);
+                }}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 my-2">
+              
+              {/* Seletor do Colaborador (Combobox Pesquisável estilo Shadcn) */}
+              <div className="space-y-2 relative">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Colaborador
+                </label>
+                
+                {/* Botão Gatilho do Combobox */}
+                <button
+                  type="button"
+                  onClick={() => setIsComboOpen(!isComboOpen)}
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                >
+                  <span className="truncate">
+                    {exportEmployee === "all" 
+                      ? "Todos os Colaboradores" 
+                      : (employeeMap.get(exportEmployee) || "Selecionar colaborador...")}
+                  </span>
+                  <ArrowUpDown size={14} className="opacity-50 shrink-0 ml-2" />
+                </button>
+
+                {/* Camada Transparente para capturar clique fora e fechar o combobox */}
+                {isComboOpen && (
+                  <div 
+                    className="fixed inset-0 z-40 cursor-default" 
+                    onClick={() => setIsComboOpen(false)}
+                  />
+                )}
+
+                {/* Dropdown Flutuante (Popover + Input de Busca) */}
+                {isComboOpen && (
+                  <div className="absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md animate-in fade-in-50 slide-in-from-top-1 duration-100 flex flex-col">
+                    
+                    {/* Campo de Digitação / Busca rápida */}
+                    <div className="flex items-center border-b border-slate-100 px-3 py-2">
+                      <Search size={14} className="text-slate-400 mr-2 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="Pesquisar colaborador..."
+                        value={comboSearch}
+                        onChange={(e) => setComboSearch(e.target.value)}
+                        className="w-full text-sm outline-none border-none bg-transparent placeholder:text-slate-400 text-slate-900 p-0 focus:ring-0 focus:outline-none focus:border-none"
+                        autoFocus
+                      />
+                    </div>
+
+                    {/* Lista Rolável de Colaboradores */}
+                    <div className="overflow-y-auto max-h-44 py-1 divide-y divide-slate-50">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExportEmployee("all");
+                          setIsComboOpen(false);
+                          setComboSearch("");
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 transition truncate font-medium ${
+                          exportEmployee === "all" ? "text-indigo-600 bg-indigo-50/50" : "text-slate-700"
+                        }`}
+                      >
+                        Todos os Colaboradores
+                      </button>
+                      
+                      {filteredComboEmployees.map(emp => (
+                        <button
+                          key={emp.rawId}
+                          type="button"
+                          onClick={() => {
+                            setExportEmployee(emp.rawId);
+                            setIsComboOpen(false);
+                            setComboSearch("");
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 transition truncate flex flex-col gap-0.5 ${
+                            exportEmployee === emp.rawId ? "bg-indigo-50/50 text-indigo-700 font-semibold" : "text-slate-700"
+                          }`}
+                        >
+                          <span className="truncate">{emp.name}</span>
+                          <span className="text-[10px] font-mono text-slate-400">CPF/PIS: {emp.cleanId}</span>
+                        </button>
+                      ))}
+
+                      {filteredComboEmployees.length === 0 && (
+                        <div className="text-xs text-slate-400 py-4 text-center">
+                          Nenhum colaborador encontrado.
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                )}
+              </div>
+
+              {/* Seletor de Intervalo de Datas */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    De (Início)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:border-transparent transition cursor-pointer"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Até (Fim)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:border-transparent transition cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Mensagem de Erro (Validação de dados) */}
+              {exportError && (
+                <div className="flex items-center gap-2 p-3 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg">
+                  <AlertCircle size={16} className="shrink-0" />
+                  <span>{exportError}</span>
+                </div>
+              )}
+
+            </div>
+
+            {/* Rodapé e Botões de Ação */}
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  setIsExportModalOpen(false);
+                  setIsComboOpen(false);
+                }}
+                className="h-10 px-4 py-2 border border-slate-200 rounded-md hover:bg-slate-50 text-slate-700 font-semibold text-xs transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmExport}
+                className="h-10 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-md transition shadow-sm flex items-center gap-1.5"
+              >
+                <FileSpreadsheet size={14} /> Exportar CSV
+              </button>
+            </div>
+
+          </div>
         </div>
       )}
 
