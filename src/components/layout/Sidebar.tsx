@@ -11,7 +11,7 @@ const navItems = [
   { name: "Copia/Cola", href: "/copiacola", icon: Copy },
   { name: "Corpo Clínico", href: "/corpoclinico", icon: Users },
   { name: "Exames/Procedimentos", href: "/exames", icon: Stethoscope },
-  { name: "Conversor AFD", href: "/conversor-afd", icon: FileSpreadsheet },
+  { name: "Conversor AFD", href: "/conversor-ponto", icon: FileSpreadsheet },
 ];
 
 export function Sidebar() {
