@@ -18,7 +18,12 @@ import {
   ArrowUp,
   ArrowDown,
   X,
-  AlertCircle
+  AlertCircle,
+  Settings,
+  TrendingUp,
+  TrendingDown,
+  CalendarDays,
+  Coffee
 } from "lucide-react";
 
 // Interfaces de Tipo
@@ -43,7 +48,7 @@ type SortField = "name" | "cleanId" | "dateObj";
 type SortOrder = "asc" | "desc";
 
 export default function AfdConverter() {
-  const [activeTab, setActiveTab] = useState<"batidas" | "colaboradores">("batidas");
+  const [activeTab, setActiveTab] = useState<"batidas" | "colaboradores" | "calculo">("batidas");
   const [punches, setPunches] = useState<Punch[]>([]);
   const [employeeMap, setEmployeeMap] = useState<Map<string, string>>(new Map());
   const [fileName, setFileName] = useState<string>("");
@@ -53,16 +58,38 @@ export default function AfdConverter() {
   const [copied, setCopied] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Estados do Modal de Exportação
+  // Estados do Modal de Exportação Básica
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [exportEmployee, setExportEmployee] = useState<string>("all");
   const [exportStartDate, setExportStartDate] = useState<string>("");
   const [exportEndDate, setExportEndDate] = useState<string>("");
   const [exportError, setExportError] = useState<string>("");
 
-  // Estados do Combobox Pesquisável (Seleção de Colaborador na Exportação)
+  // Estados do Combobox Pesquisável (Seleção de Colaborador na Exportação Básica)
   const [isComboOpen, setIsComboOpen] = useState<boolean>(false);
   const [comboSearch, setComboSearch] = useState<string>("");
+
+  // Estados do Painel de Cálculo (Aba 3)
+  const [calcEmployee, setCalcEmployee] = useState<string>("");
+  const [calcStartDate, setCalcStartDate] = useState<string>("");
+  const [calcEndDate, setCalcEndDate] = useState<string>("");
+  const [isCalcComboOpen, setIsCalcComboOpen] = useState<boolean>(false);
+  const [calcComboSearch, setCalcComboSearch] = useState<string>("");
+
+  // Variável de Intervalo de Almoço/Descanso Padrão (em minutos)
+  const [expectedInterval, setExpectedInterval] = useState<number>(15);
+
+  // Escala de Trabalho Padrão (Seg: 1, Ter: 2, Qua: 3, Qui: 4, Sex: 5, Sab: 6, Dom: 0)
+  // Armazenado como string "HH:MM"
+  const [schedule, setSchedule] = useState<Record<number, string>>({
+    1: "08:00", // Segunda
+    2: "08:00", // Terça
+    3: "08:00", // Quarta
+    4: "08:00", // Quinta
+    5: "08:00", // Sexta
+    6: "00:00", // Sábado
+    0: "00:00"  // Domingo
+  });
 
   // Estados de Ordenação
   const [sortField, setSortField] = useState<SortField>("dateObj");
@@ -77,6 +104,8 @@ export default function AfdConverter() {
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
   ];
 
+  const daysOfWeekBr = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+
   // Helper para formatar CPF/PIS
   const formatCPFOrPIS = (id: string): string => {
     const clean = id.trim();
@@ -89,6 +118,23 @@ export default function AfdConverter() {
       return target.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
     }
     return target;
+  };
+
+  // Conversores de Tempo auxiliares
+  const parseHHMMToMinutes = (val: string): number => {
+    if (!val) return 0;
+    const parts = val.split(":");
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return h * 60 + m;
+  };
+
+  const formatMinutesToHHMM = (totalMinutes: number): string => {
+    const isNegative = totalMinutes < 0;
+    const absMinutes = Math.abs(totalMinutes);
+    const hours = Math.floor(absMinutes / 60);
+    const mins = absMinutes % 60;
+    return `${isNegative ? "-" : ""}${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
   };
 
   // Parser do arquivo AFD Portaria 671
@@ -185,12 +231,25 @@ export default function AfdConverter() {
           return `${year}-${month}-${day}`;
         };
 
-        setExportStartDate(formatDateForInput(minD));
-        setExportEndDate(formatDateForInput(maxD));
+        const minDateFormatted = formatDateForInput(minD);
+        const maxDateFormatted = formatDateForInput(maxD);
+
+        setExportStartDate(minDateFormatted);
+        setExportEndDate(maxDateFormatted);
+
+        // Preenche o formulário da aba de cálculos também
+        setCalcStartDate(minDateFormatted);
+        setCalcEndDate(maxDateFormatted);
 
         const newestDate = tempPunches[0].dateObj;
         setCurrentYear(newestDate.getFullYear());
         setCurrentMonth(newestDate.getMonth());
+
+        // Pré-seleciona o primeiro funcionário disponível para cálculo
+        const firstEmployeeId = tempEmployees.keys().next().value;
+        if (firstEmployeeId) {
+          setCalcEmployee(firstEmployeeId);
+        }
       }
     };
   };
@@ -234,13 +293,21 @@ export default function AfdConverter() {
     );
   }, [collaboratorsList, searchTerm]);
 
-  // Filtro de colaboradores dinâmico para a pesquisa dentro da caixa de seleção (Combobox)
+  // Filtro de colaboradores para o Combobox da exportação básica
   const filteredComboEmployees = useMemo(() => {
     return collaboratorsList.filter(emp => 
       emp.name.toLowerCase().includes(comboSearch.toLowerCase()) ||
       emp.cleanId.includes(comboSearch)
     );
   }, [collaboratorsList, comboSearch]);
+
+  // Filtro de colaboradores para o Combobox da aba de Cálculos
+  const filteredCalcComboEmployees = useMemo(() => {
+    return collaboratorsList.filter(emp => 
+      emp.name.toLowerCase().includes(calcComboSearch.toLowerCase()) ||
+      emp.cleanId.includes(calcComboSearch)
+    );
+  }, [collaboratorsList, calcComboSearch]);
 
   // Filtro básico de busca de batidas
   const filteredPunches = useMemo(() => {
@@ -369,7 +436,7 @@ export default function AfdConverter() {
     }
   };
 
-  // Copiar tabela visível na tela para a área de transferência
+  // Copiar tabela de batidas da aba de Histórico
   const handleCopyToClipboard = () => {
     if (sortedPunches.length === 0) return;
 
@@ -384,14 +451,13 @@ export default function AfdConverter() {
     });
   };
 
-  // Processa e exporta o CSV personalizado após a confirmação no Modal
+  // Exportar o CSV básico da modal
   const handleConfirmExport = () => {
     setExportError("");
     
     const start = exportStartDate ? new Date(exportStartDate + "T00:00:00") : null;
     const end = exportEndDate ? new Date(exportEndDate + "T23:59:59") : null;
 
-    // Filtra aplicando as regras selecionadas na janela flutuante
     const filteredToExport = punches.filter(p => {
       const matchesEmployee = exportEmployee === "all" || p.rawId === exportEmployee;
       const matchesStart = !start || p.dateObj >= start;
@@ -404,7 +470,6 @@ export default function AfdConverter() {
       return;
     }
 
-    // Geração de CSV estruturado
     const headers = ["Nome", "Identificação (CPF/PIS)", "Data e Hora"];
     const rows = filteredToExport.map(p => [
       p.name,
@@ -421,7 +486,6 @@ export default function AfdConverter() {
     const link = document.createElement("a");
     link.setAttribute("href", url);
     
-    // Nome dinâmico para o arquivo exportado
     let fileNameStr = "fechamento_ponto";
     if (exportEmployee !== "all") {
       const nameClean = (employeeMap.get(exportEmployee) || "colaborador")
@@ -441,6 +505,208 @@ export default function AfdConverter() {
     document.body.removeChild(link);
     
     setIsExportModalOpen(false);
+  };
+
+  // ====================================================================
+  // ENGINE DE CÁLCULO DE HORAS (COM LÓGICA DE ALMOÇO FLEXÍVEL CLT/INTERNA)
+  // ====================================================================
+
+  // Gera lista contínua de datas no range selecionado
+  const calcDatesRange = useMemo<string[]>(() => {
+    if (!calcStartDate || !calcEndDate) return [];
+    
+    const dates: string[] = [];
+    const start = new Date(calcStartDate + "T00:00:00");
+    const end = new Date(calcEndDate + "T00:00:00");
+    const current = new Date(start);
+
+    while (current <= end) {
+      dates.push(current.toLocaleDateString("sv-SE"));
+      current.setDate(current.getDate() + 1);
+    }
+    return dates;
+  }, [calcStartDate, calcEndDate]);
+
+  // Estrutura calculada diária para o colaborador selecionado aplicando a regra de intervalo flexível
+  const calcEmployeeReport = useMemo(() => {
+    if (!calcEmployee || calcDatesRange.length === 0) return { days: [], summary: { totalWorked: 0, totalExpected: 0, totalOvertime: 0, totalPending: 0, finalBalance: 0 } };
+
+    const employeePunches = punches.filter(p => p.rawId === calcEmployee);
+
+    let totalWorked = 0;
+    let totalExpected = 0;
+    let totalOvertime = 0;
+    let totalPending = 0;
+
+    const calculatedDays = calcDatesRange.map(dateStr => {
+      const currentDateObj = new Date(dateStr + "T00:00:00");
+      const dayOfWeek = currentDateObj.getDay();
+
+      // Busca batidas ordenadas cronologicamente
+      const dayPunches = employeePunches
+        .filter(p => p.dateObj.toLocaleDateString("sv-SE") === dateStr)
+        .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime());
+
+      // Carga Esperada do dia da semana
+      const expectedLoadStr = schedule[dayOfWeek] || "00:00";
+      const expectedMinutes = parseHHMMToMinutes(expectedLoadStr);
+
+      // Agrupamento para cálculo
+      const isOddPunches = dayPunches.length % 2 !== 0;
+      const loops = isOddPunches ? dayPunches.length - 1 : dayPunches.length;
+
+      // 1. Calcula o Tempo Ativo Trabalhado (Soma dos turnos ativos)
+      let activeWorkingMinutes = 0;
+      for (let i = 0; i < loops; i += 2) {
+        const t1 = dayPunches[i].dateObj.getTime();
+        const t2 = dayPunches[i+1].dateObj.getTime();
+        activeWorkingMinutes += Math.round((t2 - t1) / 60000);
+      }
+
+      // 2. Calcula o Intervalo de Almoço Realizado (Soma das lacunas entre os turnos)
+      let breakTakenMinutes = 0;
+      for (let i = 1; i < loops - 1; i += 2) {
+        const t1 = dayPunches[i].dateObj.getTime();
+        const t2 = dayPunches[i+1].dateObj.getTime();
+        breakTakenMinutes += Math.round((t2 - t1) / 60000);
+      }
+
+      // 3. Aplica as regras de limite do Intervalo Permitido (Variável de Intervalo + Regra dos 15m/1h)
+      let allowedBreak = expectedInterval;
+      let isSpecialRuleApplied = false;
+
+      // REGRA: "Se o colaborador trabalha de forma ativa 7h ou mais no dia, ele ganha o direito a 1h (60 min) de intervalo pago."
+      if (activeWorkingMinutes >= 420) { // 7h * 60m = 420m
+        allowedBreak = 60;
+        isSpecialRuleApplied = true;
+      }
+
+      // 4. Tratamento do Excesso de Almoço: Se superou o limite permitido, desconta apenas o excesso.
+      // Se estiver no limite, o intervalo é totalmente integrado às horas pagas (não descontado).
+      let breakDeductedMinutes = 0;
+      if (breakTakenMinutes > allowedBreak) {
+        breakDeductedMinutes = breakTakenMinutes - allowedBreak;
+      }
+
+      // Horas Trabalhadas Líquidas do Dia (Horas Ativas + Intervalo Integrado/Pago dentro do limite)
+      const finalWorkedMinutes = activeWorkingMinutes + Math.min(breakTakenMinutes, allowedBreak);
+
+      // 5. Diferença em relação à escala esperada
+      let overtimeMinutes = 0;
+      let pendingMinutes = 0;
+
+      if (finalWorkedMinutes > expectedMinutes) {
+        overtimeMinutes = finalWorkedMinutes - expectedMinutes;
+      } else if (finalWorkedMinutes < expectedMinutes) {
+        pendingMinutes = expectedMinutes - finalWorkedMinutes;
+      }
+
+      // Somatórios do Período
+      totalWorked += finalWorkedMinutes;
+      totalExpected += expectedMinutes;
+      totalOvertime += overtimeMinutes;
+      totalPending += pendingMinutes;
+
+      const punchesListText = dayPunches.map(p => {
+        const h = String(p.dateObj.getHours()).padStart(2, "0");
+        const m = String(p.dateObj.getMinutes()).padStart(2, "0");
+        return `${h}:${m}`;
+      }).join(" | ");
+
+      return {
+        dateStr,
+        formattedDate: currentDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+        dayName: daysOfWeekBr[dayOfWeek],
+        punchesList: punchesListText,
+        isOddPunches,
+        activeWorkingMinutes,
+        breakTakenMinutes,
+        allowedBreak,
+        breakDeductedMinutes,
+        isSpecialRuleApplied,
+        finalWorkedMinutes,
+        expectedMinutes,
+        overtimeMinutes,
+        pendingMinutes
+      };
+    });
+
+    const finalBalance = totalOvertime - totalPending;
+
+    return {
+      days: calculatedDays,
+      summary: {
+        totalWorked,
+        totalExpected,
+        totalOvertime,
+        totalPending,
+        finalBalance
+      }
+    };
+  }, [calcEmployee, calcDatesRange, punches, schedule, expectedInterval]);
+
+  // Exportar o fechamento de horas diárias estruturado com detalhes de intervalo gozado e descontado
+  const handleExportCalculatedCSV = () => {
+    if (!calcEmployee || calcEmployeeReport.days.length === 0) return;
+
+    const employeeName = employeeMap.get(calcEmployee) || "Colaborador";
+    const employeeCPF = formatCPFOrPIS(calcEmployee);
+
+    const headers = [
+      "Data", "Dia da Semana", "Batidas", "Trabalho Ativo", "Intervalo Gozado (min)", 
+      "Intervalo Permitido (min)", "Excesso Descontado (min)", "Total Trabalhado Pago (HH:MM)", 
+      "Carga Esperada (HH:MM)", "Hora Extra (HH:MM)", "Pendente/Falta (HH:MM)", "Regra Especial 1h", "Incompleto"
+    ];
+
+    const rows = calcEmployeeReport.days.map(d => [
+      d.dateStr,
+      d.dayName,
+      d.punchesList || "Falta/Sem batida",
+      formatMinutesToHHMM(d.activeWorkingMinutes),
+      d.breakTakenMinutes,
+      d.allowedBreak,
+      d.breakDeductedMinutes,
+      formatMinutesToHHMM(d.finalWorkedMinutes),
+      formatMinutesToHHMM(d.expectedMinutes),
+      formatMinutesToHHMM(d.overtimeMinutes),
+      formatMinutesToHHMM(d.pendingMinutes),
+      d.isSpecialRuleApplied ? "Sim (7h+ Trabalho)" : "Nao",
+      d.isOddPunches ? "Sim (Batida Impar)" : "Nao"
+    ]);
+
+    const s = calcEmployeeReport.summary;
+    const summaryRows = [
+      [],
+      ["RESUMO DO FECHAMENTO DO COLABORADOR"],
+      ["Nome", employeeName],
+      ["CPF/PIS", employeeCPF],
+      ["Periodo", `${calcStartDate} ate ${calcEndDate}`],
+      ["Intervalo Padrao Configurado (min)", expectedInterval],
+      ["Total Horas Trabalhadas (Com intervalos integrados)", formatMinutesToHHMM(s.totalWorked)],
+      ["Total Carga Esperada", formatMinutesToHHMM(s.totalExpected)],
+      ["Total Horas Extras (+)", formatMinutesToHHMM(s.totalOvertime)],
+      ["Total Horas Pendentes (-)", formatMinutesToHHMM(s.totalPending)],
+      ["Saldo Final", formatMinutesToHHMM(s.finalBalance)]
+    ];
+
+    const csvContent = 
+      "\uFEFF" + 
+      [
+        headers.join(";"), 
+        ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(";")),
+        ...summaryRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(";"))
+      ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+
+    const employeeFileName = employeeName.toLowerCase().replace(/\s+/g, "_");
+    link.setAttribute("download", `fechamento_${employeeFileName}_${calcStartDate}_a_${calcEndDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const clearFilters = () => {
@@ -485,6 +751,7 @@ export default function AfdConverter() {
                 setEmployeeMap(new Map());
                 setFileName("");
                 setSelectedDate(null);
+                setCalcEmployee("");
               }}
               title="Limpar Arquivo"
               className="p-2 border border-slate-200 text-slate-500 hover:text-red-500 rounded-lg hover:bg-red-50 transition"
@@ -501,7 +768,7 @@ export default function AfdConverter() {
         </div>
       )}
 
-      {/* Cards de Métricas */}
+      {/* Cards de Métricas Gerais do Arquivo */}
       {punches.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
@@ -554,7 +821,7 @@ export default function AfdConverter() {
         <div className="space-y-6">
           
           {/* Seletor de Abas (Tabs) */}
-          <div className="flex border-b border-slate-200">
+          <div className="flex flex-wrap border-b border-slate-200">
             <button
               onClick={() => { setActiveTab("batidas"); clearFilters(); }}
               className={`py-3 px-6 text-sm font-semibold transition border-b-2 -mb-px flex items-center gap-2 ${
@@ -575,9 +842,19 @@ export default function AfdConverter() {
             >
               <Users size={16} /> Colaboradores ({collaboratorsList.length})
             </button>
+            <button
+              onClick={() => { setActiveTab("calculo"); clearFilters(); }}
+              className={`py-3 px-6 text-sm font-semibold transition border-b-2 -mb-px flex items-center gap-2 ${
+                activeTab === "calculo"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Settings size={16} /> Cálculo & Fechamento de Horas
+            </button>
           </div>
 
-          {activeTab === "batidas" ? (
+          {activeTab === "batidas" && (
             /* VIEW 1: HISTÓRICO DE BATIDAS */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
@@ -803,7 +1080,9 @@ export default function AfdConverter() {
               </div>
 
             </div>
-          ) : (
+          )}
+
+          {activeTab === "colaboradores" && (
             /* VIEW 2: CADASTRO DE COLABORADORES ENCONTRADOS */
             <div className="space-y-4">
               
@@ -854,16 +1133,332 @@ export default function AfdConverter() {
             </div>
           )}
 
+          {activeTab === "calculo" && (
+            /* VIEW 3: CÁLCULO & FECHAMENTO DE HORAS COM GESTÃO DE INTERVALO */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              
+              {/* Esquerda: Configurador de Escalas, Intervalo e Filtros */}
+              <div className="lg:col-span-4 space-y-6">
+                
+                {/* 1. Seleção de Período e Colaborador */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+                  <h3 className="font-bold text-slate-950 flex items-center gap-2">
+                    <User size={18} className="text-indigo-600" /> Filtros de Fechamento
+                  </h3>
+
+                  {/* Seletor Combobox Pesquisável */}
+                  <div className="space-y-1.5 relative">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Selecione o Colaborador
+                    </label>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setIsCalcComboOpen(!isCalcComboOpen)}
+                      className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                    >
+                      <span className="truncate">
+                        {calcEmployee 
+                          ? (employeeMap.get(calcEmployee) || "Selecionar...") 
+                          : "Selecione um colaborador..."}
+                      </span>
+                      <ArrowUpDown size={14} className="opacity-50 shrink-0 ml-2" />
+                    </button>
+
+                    {isCalcComboOpen && (
+                      <div className="fixed inset-0 z-40 cursor-default" onClick={() => setIsCalcComboOpen(false)} />
+                    )}
+
+                    {isCalcComboOpen && (
+                      <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md flex flex-col">
+                        <div className="flex items-center border-b border-slate-100 px-3 py-2">
+                          <Search size={14} className="text-slate-400 mr-2 shrink-0" />
+                          <input
+                            type="text"
+                            placeholder="Buscar nome..."
+                            value={calcComboSearch}
+                            onChange={(e) => setCalcComboSearch(e.target.value)}
+                            className="w-full text-sm outline-none border-none bg-transparent placeholder:text-slate-400 text-slate-900 p-0 focus:ring-0"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="overflow-y-auto max-h-40 py-1 divide-y divide-slate-50">
+                          {filteredCalcComboEmployees.map(emp => (
+                            <button
+                              key={emp.rawId}
+                              type="button"
+                              onClick={() => {
+                                setCalcEmployee(emp.rawId);
+                                setIsCalcComboOpen(false);
+                                setCalcComboSearch("");
+                              }}
+                              className={`w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 transition flex flex-col gap-0.5 ${
+                                calcEmployee === emp.rawId ? "bg-indigo-50/50 text-indigo-700 font-semibold" : "text-slate-700"
+                              }`}
+                            >
+                              <span className="truncate">{emp.name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">CPF/PIS: {emp.cleanId}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Range de Data */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Início</label>
+                      <input
+                        type="date"
+                        value={calcStartDate}
+                        onChange={(e) => setCalcStartDate(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Fim</label>
+                      <input
+                        type="date"
+                        value={calcEndDate}
+                        onChange={(e) => setCalcEndDate(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Variável do Intervalo e Escala Semanal */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h3 className="font-bold text-slate-950 flex items-center gap-2">
+                      <Settings size={18} className="text-indigo-600" /> Escala & Intervalo
+                    </h3>
+                  </div>
+
+                  {/* Entrada da Variável de Intervalo Padrão */}
+                  <div className="space-y-1.5 bg-slate-50 p-3 rounded-lg border border-slate-150">
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                      <Coffee size={14} className="text-indigo-500" /> Intervalo de Almoço Padrão
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        value={expectedInterval}
+                        onChange={(e) => setExpectedInterval(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full h-9 text-sm border border-slate-200 rounded px-2.5 font-medium text-slate-900 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                      />
+                      <span className="text-xs font-semibold text-slate-500">minutos</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal mt-1">
+                      Intervalos gozados até este limite não são descontados. Excessos serão deduzidos automaticamente.
+                    </p>
+                  </div>
+                  
+                  {/* Carga Esperada Diária */}
+                  <div className="space-y-2 pt-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Carga Diária por Dia da Semana (HH:MM)
+                    </span>
+                    <div className="space-y-2 divide-y divide-slate-100">
+                      {[1, 2, 3, 4, 5, 6, 0].map((dayNum) => (
+                        <div key={dayNum} className="flex items-center justify-between pt-2 first:pt-0">
+                          <span className="text-xs font-semibold text-slate-700">
+                            {dayNum === 0 ? "Domingo" : dayNum === 6 ? "Sábado" : `${daysOfWeekBr[dayNum].split("-")[0]}`}
+                          </span>
+                          <input
+                            type="text"
+                            placeholder="00:00"
+                            value={schedule[dayNum]}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/[^0-9:]/g, "");
+                              setSchedule(prev => ({ ...prev, [dayNum]: val }));
+                            }}
+                            className="w-20 text-center h-8 text-xs border border-slate-200 rounded font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Direita: Tabela Diária Detalhada e Painel de Horas Calculadas */}
+              <div className="lg:col-span-8 space-y-6">
+                
+                {calcEmployee ? (
+                  <>
+                    {/* Cards de Horas Fechadas */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Trabalhadas Líquidas</p>
+                        <h3 className="text-lg font-extrabold text-slate-900 font-mono mt-1">
+                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalWorked)}
+                        </h3>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Esperadas (Escala)</p>
+                        <h3 className="text-lg font-extrabold text-slate-900 font-mono mt-1">
+                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalExpected)}
+                        </h3>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">Extras (+)</p>
+                          <TrendingUp size={14} className="text-emerald-500" />
+                        </div>
+                        <h3 className="text-lg font-extrabold text-emerald-600 font-mono mt-1">
+                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalOvertime)}
+                        </h3>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">Faltas/Pendentes (-)</p>
+                          <TrendingDown size={14} className="text-red-500" />
+                        </div>
+                        <h3 className="text-lg font-extrabold text-red-600 font-mono mt-1">
+                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalPending)}
+                        </h3>
+                      </div>
+                    </div>
+
+                    {/* Alerta de Saldo Final */}
+                    <div className={`p-4 rounded-xl border flex items-center justify-between ${
+                      calcEmployeeReport.summary.finalBalance >= 0 
+                        ? "bg-emerald-50 border-emerald-100 text-emerald-900" 
+                        : "bg-red-50 border-red-100 text-red-900"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <Clock size={18} />
+                        <span className="text-xs font-semibold">
+                          Saldo Líquido Geral (Com tratamento de intervalos):
+                        </span>
+                      </div>
+                      <span className="font-mono font-extrabold text-lg">
+                        {formatMinutesToHHMM(calcEmployeeReport.summary.finalBalance)}
+                      </span>
+                    </div>
+
+                    {/* Tabela do Espelho Diário Detalhado */}
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="p-4 border-b border-slate-150 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50/55">
+                        <div>
+                          <h4 className="font-bold text-slate-900">
+                            Espelho de Ponto Individual: <span className="text-indigo-600">{employeeMap.get(calcEmployee)}</span>
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Cálculo diário aplicando as regras de intervalos ({expectedInterval} min padrão / 1h para jornadas de 7h+).
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleExportCalculatedCSV}
+                          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition shadow-sm"
+                        >
+                          <FileSpreadsheet size={14} /> Exportar Fechamento (CSV)
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase select-none">
+                              <th className="py-3 px-4">Data</th>
+                              <th className="py-3 px-4">Batidas do Dia</th>
+                              <th className="py-3 px-4 text-center">Intervalo</th>
+                              <th className="py-3 px-4 text-center">Trabalhado Pago</th>
+                              <th className="py-3 px-4 text-center">Carga Esperada</th>
+                              <th className="py-3 px-4 text-right">Saldo do Dia</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-xs">
+                            {calcEmployeeReport.days.map((day) => (
+                              <tr key={day.dateStr} className="hover:bg-slate-50/40 transition">
+                                <td className="py-3 px-4 font-medium text-slate-900">
+                                  {day.formattedDate}
+                                  <span className="block text-[10px] text-slate-400 font-normal">{day.dayName}</span>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {day.punchesList ? (
+                                    <span className="font-mono text-slate-700 bg-slate-50 border border-slate-150 px-2 py-0.5 rounded">
+                                      {day.punchesList}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 italic">Falta / Sem batida</span>
+                                  )}
+                                  {day.isOddPunches && (
+                                    <span className="inline-block ml-2 text-[9px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold animate-pulse">
+                                      Batida Incompleta
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  {day.breakTakenMinutes > 0 ? (
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="font-medium text-slate-700 font-mono">
+                                        {day.breakTakenMinutes} min
+                                      </span>
+                                      {day.breakDeductedMinutes > 0 ? (
+                                        <span className="text-[10px] text-red-500 font-bold" title={`Intervalo excedeu o limite de ${day.allowedBreak} min`}>
+                                          Desconto: -{day.breakDeductedMinutes} min
+                                        </span>
+                                      ) : (
+                                        <span className="text-[9px] bg-emerald-50 text-emerald-700 font-bold px-1 py-0.2 rounded" title="Intervalo integrado e pago">
+                                          Pago {day.isSpecialRuleApplied ? "(Regra 1h)" : ""}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-center font-mono font-bold text-slate-900">
+                                  {day.finalWorkedMinutes > 0 ? formatMinutesToHHMM(day.finalWorkedMinutes) : "-"}
+                                </td>
+                                <td className="py-3 px-4 text-center font-mono text-slate-500">
+                                  {day.expectedMinutes > 0 ? formatMinutesToHHMM(day.expectedMinutes) : "-"}
+                                </td>
+                                <td className="py-3 px-4 text-right font-mono">
+                                  {day.overtimeMinutes > 0 && (
+                                    <span className="text-emerald-600 font-bold">+{formatMinutesToHHMM(day.overtimeMinutes)}</span>
+                                  )}
+                                  {day.pendingMinutes > 0 && (
+                                    <span className="text-red-500">-{formatMinutesToHHMM(day.pendingMinutes)}</span>
+                                  )}
+                                  {day.overtimeMinutes === 0 && day.pendingMinutes === 0 && (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center border border-dashed border-slate-200 bg-white rounded-2xl py-16 px-4">
+                    <CalendarDays size={32} className="text-slate-400 mb-3" />
+                    <p className="text-sm font-semibold text-slate-600">Nenhum colaborador selecionado para cálculo.</p>
+                    <p className="text-xs text-slate-400 mt-1">Utilize o painel de filtros lateral para iniciar.</p>
+                  </div>
+                )}
+
+              </div>
+
+            </div>
+          )}
+
         </div>
       )}
 
       {/* ======================================================= */}
-      {/* MODAL DE EXPORTAÇÃO PERSONALIZADA (ESTILO SHADCN UI) */}
+      {/* MODAL DE EXPORTAÇÃO BÁSICA (ESTILO SHADCN UI) */}
       {/* ======================================================= */}
       {isExportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           
-          {/* Fundo Desfocado (Backdrop Overlay) */}
           <div 
             className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-200" 
             onClick={() => {
@@ -872,15 +1467,13 @@ export default function AfdConverter() {
             }}
           />
           
-          {/* Caixa de Diálogo (Modal Content) */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 relative z-10 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-4">
             
-            {/* Cabeçalho */}
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-lg font-bold text-slate-950">Exportar para o Financeiro</h3>
+                <h3 className="text-lg font-bold text-slate-950">Exportar Histórico de Batidas</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Filtre por colaborador e defina o período desejado para o fechamento.
+                  Feche o histórico bruto de ponto no range definido.
                 </p>
               </div>
               <button 
@@ -896,17 +1489,15 @@ export default function AfdConverter() {
 
             <div className="space-y-4 my-2">
               
-              {/* Seletor do Colaborador (Combobox Pesquisável estilo Shadcn) */}
               <div className="space-y-2 relative">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Colaborador
                 </label>
                 
-                {/* Botão Gatilho do Combobox */}
                 <button
                   type="button"
                   onClick={() => setIsComboOpen(!isComboOpen)}
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
                 >
                   <span className="truncate">
                     {exportEmployee === "all" 
@@ -916,19 +1507,13 @@ export default function AfdConverter() {
                   <ArrowUpDown size={14} className="opacity-50 shrink-0 ml-2" />
                 </button>
 
-                {/* Camada Transparente para capturar clique fora e fechar o combobox */}
                 {isComboOpen && (
-                  <div 
-                    className="fixed inset-0 z-40 cursor-default" 
-                    onClick={() => setIsComboOpen(false)}
-                  />
+                  <div className="fixed inset-0 z-40 cursor-default" onClick={() => setIsComboOpen(false)} />
                 )}
 
-                {/* Dropdown Flutuante (Popover + Input de Busca) */}
                 {isComboOpen && (
-                  <div className="absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md animate-in fade-in-50 slide-in-from-top-1 duration-100 flex flex-col">
+                  <div className="absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md flex flex-col">
                     
-                    {/* Campo de Digitação / Busca rápida */}
                     <div className="flex items-center border-b border-slate-100 px-3 py-2">
                       <Search size={14} className="text-slate-400 mr-2 shrink-0" />
                       <input
@@ -936,12 +1521,11 @@ export default function AfdConverter() {
                         placeholder="Pesquisar colaborador..."
                         value={comboSearch}
                         onChange={(e) => setComboSearch(e.target.value)}
-                        className="w-full text-sm outline-none border-none bg-transparent placeholder:text-slate-400 text-slate-900 p-0 focus:ring-0 focus:outline-none focus:border-none"
+                        className="w-full text-sm outline-none border-none bg-transparent placeholder:text-slate-400 text-slate-900 p-0 focus:ring-0"
                         autoFocus
                       />
                     </div>
 
-                    {/* Lista Rolável de Colaboradores */}
                     <div className="overflow-y-auto max-h-44 py-1 divide-y divide-slate-50">
                       <button
                         type="button"
@@ -986,37 +1570,31 @@ export default function AfdConverter() {
                 )}
               </div>
 
-              {/* Seletor de Intervalo de Datas */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     De (Início)
                   </label>
-                  <div className="relative">
-                    <input
-                      type="date"
-                      value={exportStartDate}
-                      onChange={(e) => setExportStartDate(e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:border-transparent transition cursor-pointer"
-                    />
-                  </div>
+                  <input
+                    type="date"
+                    value={exportStartDate}
+                    onChange={(e) => setExportStartDate(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     Até (Fim)
                   </label>
-                  <div className="relative">
-                    <input
-                      type="date"
-                      value={exportEndDate}
-                      onChange={(e) => setExportEndDate(e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:border-transparent transition cursor-pointer"
-                    />
-                  </div>
+                  <input
+                    type="date"
+                    value={exportEndDate}
+                    onChange={(e) => setExportEndDate(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
+                  />
                 </div>
               </div>
 
-              {/* Mensagem de Erro (Validação de dados) */}
               {exportError && (
                 <div className="flex items-center gap-2 p-3 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg">
                   <AlertCircle size={16} className="shrink-0" />
@@ -1026,7 +1604,6 @@ export default function AfdConverter() {
 
             </div>
 
-            {/* Rodapé e Botões de Ação */}
             <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
               <button
                 onClick={() => {
