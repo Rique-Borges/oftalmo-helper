@@ -23,7 +23,7 @@ import {
   TrendingUp,
   TrendingDown,
   CalendarDays,
-  Coffee
+  Briefcase
 } from "lucide-react";
 
 // Interfaces de Tipo
@@ -46,6 +46,7 @@ interface EmployeeRow {
 
 type SortField = "name" | "cleanId" | "dateObj";
 type SortOrder = "asc" | "desc";
+type EmployeeCategory = "comercial" | "call_center" | "estagiario" | "custom";
 
 export default function AfdConverter() {
   const [activeTab, setActiveTab] = useState<"batidas" | "colaboradores" | "calculo">("batidas");
@@ -58,36 +59,35 @@ export default function AfdConverter() {
   const [copied, setCopied] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Estados do Modal de Exportação Básica
+  // Estados do Modal de Exportação Básica (Inicializados em Julho/2026)
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [exportEmployee, setExportEmployee] = useState<string>("all");
-  const [exportStartDate, setExportStartDate] = useState<string>("");
-  const [exportEndDate, setExportEndDate] = useState<string>("");
+  const [exportStartDate, setExportStartDate] = useState<string>("2026-07-01");
+  const [exportEndDate, setExportEndDate] = useState<string>("2026-07-31");
   const [exportError, setExportError] = useState<string>("");
 
-  // Estados do Combobox Pesquisável (Seleção de Colaborador na Exportação Básica)
+  // Estados do Combobox Pesquisável (Exportação Básica)
   const [isComboOpen, setIsComboOpen] = useState<boolean>(false);
   const [comboSearch, setComboSearch] = useState<string>("");
 
-  // Estados do Painel de Cálculo (Aba 3)
-  const [calcEmployee, setCalcEmployee] = useState<string>("");
-  const [calcStartDate, setCalcStartDate] = useState<string>("");
-  const [calcEndDate, setCalcEndDate] = useState<string>("");
+  // Estados do Painel de Cálculo - Aba 3 (Inicializados em Julho/2026)
+  const [calcEmployee, setCalcEmployee] = useState<string>("all");
+  const [calcStartDate, setCalcStartDate] = useState<string>("2026-07-01");
+  const [calcEndDate, setCalcEndDate] = useState<string>("2026-07-31");
   const [isCalcComboOpen, setIsCalcComboOpen] = useState<boolean>(false);
   const [calcComboSearch, setCalcComboSearch] = useState<string>("");
 
-  // Variável de Intervalo de Almoço/Descanso Padrão (em minutos)
-  const [expectedInterval, setExpectedInterval] = useState<number>(15);
+  // Categoria de Funcionários (Dropbox)
+  const [employeeCategory, setEmployeeCategory] = useState<EmployeeCategory>("comercial");
 
   // Escala de Trabalho Padrão (Seg: 1, Ter: 2, Qua: 3, Qui: 4, Sex: 5, Sab: 6, Dom: 0)
-  // Armazenado como string "HH:MM"
   const [schedule, setSchedule] = useState<Record<number, string>>({
     1: "08:00", // Segunda
     2: "08:00", // Terça
     3: "08:00", // Quarta
     4: "08:00", // Quinta
     5: "08:00", // Sexta
-    6: "00:00", // Sábado
+    6: "04:00", // Sábado
     0: "00:00"  // Domingo
   });
 
@@ -95,9 +95,9 @@ export default function AfdConverter() {
   const [sortField, setSortField] = useState<SortField>("dateObj");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  // Estados do Calendário Principal
-  const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
-  const [currentMonth, setCurrentMonth] = useState<number>(new Date().getMonth());
+  // Estados do Calendário Principal (Configurado para Julho/2026)
+  const [currentYear, setCurrentYear] = useState<number>(2026);
+  const [currentMonth, setCurrentMonth] = useState<number>(6); // Julho é index 6 (Janeiro é 0)
 
   const monthsBr = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -135,6 +135,24 @@ export default function AfdConverter() {
     const hours = Math.floor(absMinutes / 60);
     const mins = absMinutes % 60;
     return `${isNegative ? "-" : ""}${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+  };
+
+  // Executa a troca de horários automática ao alterar a categoria
+  const handleCategoryChange = (category: EmployeeCategory) => {
+    setEmployeeCategory(category);
+    if (category === "comercial") {
+      setSchedule({
+        1: "08:00", 2: "08:00", 3: "08:00", 4: "08:00", 5: "08:00", 6: "00:00", 0: "00:00"
+      });
+    } else if (category === "call_center") {
+      setSchedule({
+        1: "06:00", 2: "06:00", 3: "06:00", 4: "06:00", 5: "06:00", 6: "04:00", 0: "00:00"
+      });
+    } else if (category === "estagiario") {
+      setSchedule({
+        1: "06:00", 2: "06:00", 3: "06:00", 4: "06:00", 5: "06:00", 6: "00:00", 0: "00:00"
+      });
+    }
   };
 
   // Parser do arquivo AFD Portaria 671
@@ -218,38 +236,18 @@ export default function AfdConverter() {
       setEmployeeMap(tempEmployees);
       setCurrentPage(1);
 
-      // Define os intervalos de data iniciais com base no conteúdo lido
-      if (tempPunches.length > 0) {
-        const dates = tempPunches.map(p => p.dateObj.getTime());
-        const minD = new Date(Math.min(...dates));
-        const maxD = new Date(Math.max(...dates));
+      // Define os intervalos de data iniciais mantendo o padrão solicitado de Julho/2026
+      setExportStartDate("2026-07-01");
+      setExportEndDate("2026-07-31");
+      setCalcStartDate("2026-07-01");
+      setCalcEndDate("2026-07-31");
 
-        const formatDateForInput = (d: Date) => {
-          const year = d.getFullYear();
-          const month = String(d.getMonth() + 1).padStart(2, "0");
-          const day = String(d.getDate()).padStart(2, "0");
-          return `${year}-${month}-${day}`;
-        };
+      setCurrentYear(2026);
+      setCurrentMonth(6); // Mantém focado em Julho/2026
 
-        const minDateFormatted = formatDateForInput(minD);
-        const maxDateFormatted = formatDateForInput(maxD);
-
-        setExportStartDate(minDateFormatted);
-        setExportEndDate(maxDateFormatted);
-
-        // Preenche o formulário da aba de cálculos também
-        setCalcStartDate(minDateFormatted);
-        setCalcEndDate(maxDateFormatted);
-
-        const newestDate = tempPunches[0].dateObj;
-        setCurrentYear(newestDate.getFullYear());
-        setCurrentMonth(newestDate.getMonth());
-
-        // Pré-seleciona o primeiro funcionário disponível para cálculo
-        const firstEmployeeId = tempEmployees.keys().next().value;
-        if (firstEmployeeId) {
-          setCalcEmployee(firstEmployeeId);
-        }
+      const firstEmployeeId = tempEmployees.keys().next().value;
+      if (firstEmployeeId) {
+        setCalcEmployee(firstEmployeeId);
       }
     };
   };
@@ -285,7 +283,7 @@ export default function AfdConverter() {
     return list;
   }, [punches, employeeMap]);
 
-  // Filtro básico de busca de colaboradores
+  // Filtro de busca de colaboradores
   const filteredCollaborators = useMemo(() => {
     return collaboratorsList.filter(c => 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -507,11 +505,11 @@ export default function AfdConverter() {
     setIsExportModalOpen(false);
   };
 
-  // ====================================================================
-  // ENGINE DE CÁLCULO DE HORAS (COM LÓGICA DE ALMOÇO FLEXÍVEL CLT/INTERNA)
-  // ====================================================================
+  // =======================================================
+  // ENGINE DE CÁLCULO DE HORAS (FECHAMENTO INDIVIDUAL)
+  // =======================================================
 
-  // Gera lista contínua de datas no range selecionado
+  // Gera lista contínua de datas no range de Julho/2026
   const calcDatesRange = useMemo<string[]>(() => {
     if (!calcStartDate || !calcEndDate) return [];
     
@@ -527,9 +525,11 @@ export default function AfdConverter() {
     return dates;
   }, [calcStartDate, calcEndDate]);
 
-  // Estrutura calculada diária para o colaborador selecionado aplicando a regra de intervalo flexível
+  // Estrutura calculada diária com base na categoria e escala
   const calcEmployeeReport = useMemo(() => {
-    if (!calcEmployee || calcDatesRange.length === 0) return { days: [], summary: { totalWorked: 0, totalExpected: 0, totalOvertime: 0, totalPending: 0, finalBalance: 0 } };
+    if (!calcEmployee || calcEmployee === "all" || calcDatesRange.length === 0) {
+      return { days: [], summary: { totalWorked: 0, totalExpected: 0, totalOvertime: 0, totalPending: 0, finalBalance: 0 } };
+    }
 
     const employeePunches = punches.filter(p => p.rawId === calcEmployee);
 
@@ -542,67 +542,36 @@ export default function AfdConverter() {
       const currentDateObj = new Date(dateStr + "T00:00:00");
       const dayOfWeek = currentDateObj.getDay();
 
-      // Busca batidas ordenadas cronologicamente
       const dayPunches = employeePunches
         .filter(p => p.dateObj.toLocaleDateString("sv-SE") === dateStr)
         .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime());
 
-      // Carga Esperada do dia da semana
+      // Horas Esperadas (Escala baseada na Categoria Selecionada)
       const expectedLoadStr = schedule[dayOfWeek] || "00:00";
       const expectedMinutes = parseHHMMToMinutes(expectedLoadStr);
 
-      // Agrupamento para cálculo
+      // Horas Trabalhadas de fato (Intervalos reais entre batidas de ponto)
+      let workedMinutes = 0;
       const isOddPunches = dayPunches.length % 2 !== 0;
       const loops = isOddPunches ? dayPunches.length - 1 : dayPunches.length;
 
-      // 1. Calcula o Tempo Ativo Trabalhado (Soma dos turnos ativos)
-      let activeWorkingMinutes = 0;
       for (let i = 0; i < loops; i += 2) {
         const t1 = dayPunches[i].dateObj.getTime();
         const t2 = dayPunches[i+1].dateObj.getTime();
-        activeWorkingMinutes += Math.round((t2 - t1) / 60000);
+        workedMinutes += Math.round((t2 - t1) / 60000);
       }
 
-      // 2. Calcula o Intervalo de Almoço Realizado (Soma das lacunas entre os turnos)
-      let breakTakenMinutes = 0;
-      for (let i = 1; i < loops - 1; i += 2) {
-        const t1 = dayPunches[i].dateObj.getTime();
-        const t2 = dayPunches[i+1].dateObj.getTime();
-        breakTakenMinutes += Math.round((t2 - t1) / 60000);
-      }
-
-      // 3. Aplica as regras de limite do Intervalo Permitido (Variável de Intervalo + Regra dos 15m/1h)
-      let allowedBreak = expectedInterval;
-      let isSpecialRuleApplied = false;
-
-      // REGRA: "Se o colaborador trabalha de forma ativa 7h ou mais no dia, ele ganha o direito a 1h (60 min) de intervalo pago."
-      if (activeWorkingMinutes >= 420) { // 7h * 60m = 420m
-        allowedBreak = 60;
-        isSpecialRuleApplied = true;
-      }
-
-      // 4. Tratamento do Excesso de Almoço: Se superou o limite permitido, desconta apenas o excesso.
-      // Se estiver no limite, o intervalo é totalmente integrado às horas pagas (não descontado).
-      let breakDeductedMinutes = 0;
-      if (breakTakenMinutes > allowedBreak) {
-        breakDeductedMinutes = breakTakenMinutes - allowedBreak;
-      }
-
-      // Horas Trabalhadas Líquidas do Dia (Horas Ativas + Intervalo Integrado/Pago dentro do limite)
-      const finalWorkedMinutes = activeWorkingMinutes + Math.min(breakTakenMinutes, allowedBreak);
-
-      // 5. Diferença em relação à escala esperada
+      // Calcula Horas Extras e Horas Pendentes (Atraso/Falta)
       let overtimeMinutes = 0;
       let pendingMinutes = 0;
 
-      if (finalWorkedMinutes > expectedMinutes) {
-        overtimeMinutes = finalWorkedMinutes - expectedMinutes;
-      } else if (finalWorkedMinutes < expectedMinutes) {
-        pendingMinutes = expectedMinutes - finalWorkedMinutes;
+      if (workedMinutes > expectedMinutes) {
+        overtimeMinutes = workedMinutes - expectedMinutes;
+      } else if (workedMinutes < expectedMinutes) {
+        pendingMinutes = expectedMinutes - workedMinutes;
       }
 
-      // Somatórios do Período
-      totalWorked += finalWorkedMinutes;
+      totalWorked += workedMinutes;
       totalExpected += expectedMinutes;
       totalOvertime += overtimeMinutes;
       totalPending += pendingMinutes;
@@ -619,12 +588,7 @@ export default function AfdConverter() {
         dayName: daysOfWeekBr[dayOfWeek],
         punchesList: punchesListText,
         isOddPunches,
-        activeWorkingMinutes,
-        breakTakenMinutes,
-        allowedBreak,
-        breakDeductedMinutes,
-        isSpecialRuleApplied,
-        finalWorkedMinutes,
+        workedMinutes,
         expectedMinutes,
         overtimeMinutes,
         pendingMinutes
@@ -643,34 +607,24 @@ export default function AfdConverter() {
         finalBalance
       }
     };
-  }, [calcEmployee, calcDatesRange, punches, schedule, expectedInterval]);
+  }, [calcEmployee, calcDatesRange, punches, schedule]);
 
-  // Exportar o fechamento de horas diárias estruturado com detalhes de intervalo gozado e descontado
+  // Exportar o fechamento detalhado em CSV
   const handleExportCalculatedCSV = () => {
-    if (!calcEmployee || calcEmployeeReport.days.length === 0) return;
+    if (calcEmployee === "all" || !calcEmployee || calcEmployeeReport.days.length === 0) return;
 
     const employeeName = employeeMap.get(calcEmployee) || "Colaborador";
     const employeeCPF = formatCPFOrPIS(calcEmployee);
 
-    const headers = [
-      "Data", "Dia da Semana", "Batidas", "Trabalho Ativo", "Intervalo Gozado (min)", 
-      "Intervalo Permitido (min)", "Excesso Descontado (min)", "Total Trabalhado Pago (HH:MM)", 
-      "Carga Esperada (HH:MM)", "Hora Extra (HH:MM)", "Pendente/Falta (HH:MM)", "Regra Especial 1h", "Incompleto"
-    ];
-
+    const headers = ["Data", "Dia da Semana", "Marcacoes de Ponto", "Trabalhado (HH:MM)", "Carga Esperada (HH:MM)", "Hora Extra (HH:MM)", "Pendente/Falta (HH:MM)", "Incompletas"];
     const rows = calcEmployeeReport.days.map(d => [
       d.dateStr,
       d.dayName,
       d.punchesList || "Falta/Sem batida",
-      formatMinutesToHHMM(d.activeWorkingMinutes),
-      d.breakTakenMinutes,
-      d.allowedBreak,
-      d.breakDeductedMinutes,
-      formatMinutesToHHMM(d.finalWorkedMinutes),
+      formatMinutesToHHMM(d.workedMinutes),
       formatMinutesToHHMM(d.expectedMinutes),
       formatMinutesToHHMM(d.overtimeMinutes),
       formatMinutesToHHMM(d.pendingMinutes),
-      d.isSpecialRuleApplied ? "Sim (7h+ Trabalho)" : "Nao",
       d.isOddPunches ? "Sim (Batida Impar)" : "Nao"
     ]);
 
@@ -680,12 +634,12 @@ export default function AfdConverter() {
       ["RESUMO DO FECHAMENTO DO COLABORADOR"],
       ["Nome", employeeName],
       ["CPF/PIS", employeeCPF],
+      ["Regime de Trabalho", employeeCategory === "comercial" ? "Horario Comercial" : employeeCategory === "call_center" ? "Call Center" : employeeCategory === "estagiario" ? "Estagiario" : "Personalizado"],
       ["Periodo", `${calcStartDate} ate ${calcEndDate}`],
-      ["Intervalo Padrao Configurado (min)", expectedInterval],
-      ["Total Horas Trabalhadas (Com intervalos integrados)", formatMinutesToHHMM(s.totalWorked)],
+      ["Total Horas Trabalhadas", formatMinutesToHHMM(s.totalWorked)],
       ["Total Carga Esperada", formatMinutesToHHMM(s.totalExpected)],
-      ["Total Horas Extras (+)", formatMinutesToHHMM(s.totalOvertime)],
-      ["Total Horas Pendentes (-)", formatMinutesToHHMM(s.totalPending)],
+      ["Total Horas Extras", formatMinutesToHHMM(s.totalOvertime)],
+      ["Total Horas Pendentes", formatMinutesToHHMM(s.totalPending)],
       ["Saldo Final", formatMinutesToHHMM(s.finalBalance)]
     ];
 
@@ -693,8 +647,8 @@ export default function AfdConverter() {
       "\uFEFF" + 
       [
         headers.join(";"), 
-        ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(";")),
-        ...summaryRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(";"))
+        ...rows.map(row => row.map(val => `"${val.replace(/"/g, '""')}"`).join(";")),
+        ...summaryRows.map(row => row.map(val => `"${val.replace(/"/g, '""')}"`).join(";"))
       ].join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -751,7 +705,7 @@ export default function AfdConverter() {
                 setEmployeeMap(new Map());
                 setFileName("");
                 setSelectedDate(null);
-                setCalcEmployee("");
+                setCalcEmployee("all");
               }}
               title="Limpar Arquivo"
               className="p-2 border border-slate-200 text-slate-500 hover:text-red-500 rounded-lg hover:bg-red-50 transition"
@@ -1134,10 +1088,10 @@ export default function AfdConverter() {
           )}
 
           {activeTab === "calculo" && (
-            /* VIEW 3: CÁLCULO & FECHAMENTO DE HORAS COM GESTÃO DE INTERVALO */
+            /* VIEW 3: CÁLCULO & FECHAMENTO DE HORAS EXTRAS/PENDENTES */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
-              {/* Esquerda: Configurador de Escalas, Intervalo e Filtros */}
+              {/* Esquerda: Configurador de Escalas e Filtros de Fechamento */}
               <div className="lg:col-span-4 space-y-6">
                 
                 {/* 1. Seleção de Período e Colaborador */}
@@ -1158,7 +1112,7 @@ export default function AfdConverter() {
                       className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
                     >
                       <span className="truncate">
-                        {calcEmployee 
+                        {calcEmployee && calcEmployee !== "all"
                           ? (employeeMap.get(calcEmployee) || "Selecionar...") 
                           : "Selecione um colaborador..."}
                       </span>
@@ -1205,7 +1159,7 @@ export default function AfdConverter() {
                     )}
                   </div>
 
-                  {/* Range de Data */}
+                  {/* Range de Data - Iniciando a partir de Julho 2026 */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Início</label>
@@ -1228,43 +1182,41 @@ export default function AfdConverter() {
                   </div>
                 </div>
 
-                {/* 2. Variável do Intervalo e Escala Semanal */}
+                {/* 2. Dropbox de Categoria de Funcionários e Escala de Trabalho */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center justify-between">
                     <h3 className="font-bold text-slate-950 flex items-center gap-2">
-                      <Settings size={18} className="text-indigo-600" /> Escala & Intervalo
+                      <Briefcase size={18} className="text-indigo-600" /> Categoria do Regime
                     </h3>
                   </div>
 
-                  {/* Entrada da Variável de Intervalo Padrão */}
-                  <div className="space-y-1.5 bg-slate-50 p-3 rounded-lg border border-slate-150">
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                      <Coffee size={14} className="text-indigo-500" /> Intervalo de Almoço Padrão
+                  {/* Dropbox de Categorias (Horário Comercial, Call Center e Estagiários) */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      Selecione o Regime de Trabalho
                     </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min="0"
-                        value={expectedInterval}
-                        onChange={(e) => setExpectedInterval(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full h-9 text-sm border border-slate-200 rounded px-2.5 font-medium text-slate-900 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                      />
-                      <span className="text-xs font-semibold text-slate-500">minutos</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 leading-normal mt-1">
-                      Intervalos gozados até este limite não são descontados. Excessos serão deduzidos automaticamente.
-                    </p>
+                    <select
+                      value={employeeCategory}
+                      onChange={(e) => handleCategoryChange(e.target.value as EmployeeCategory)}
+                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:border-transparent transition cursor-pointer font-medium"
+                    >
+                      <option value="comercial">💼 Horário Comercial (8h Seg-Sex)</option>
+                      <option value="call_center">🎧 Call Center (6h Seg-Sex / 4h Sáb)</option>
+                      <option value="estagiario">🎓 Estagiário (6h Seg-Sex)</option>
+                      <option value="custom">⚙️ Personalizado (Editar escala abaixo)</option>
+                    </select>
                   </div>
-                  
-                  {/* Carga Esperada Diária */}
-                  <div className="space-y-2 pt-2">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                      Carga Diária por Dia da Semana (HH:MM)
-                    </span>
-                    <div className="space-y-2 divide-y divide-slate-100">
+
+                  <div className="pt-3 border-t border-slate-100 space-y-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Escala Esperada</span>
+                      <span className="text-[9px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded">Carga (HH:MM)</span>
+                    </div>
+                    
+                    <div className="space-y-2.5">
                       {[1, 2, 3, 4, 5, 6, 0].map((dayNum) => (
-                        <div key={dayNum} className="flex items-center justify-between pt-2 first:pt-0">
-                          <span className="text-xs font-semibold text-slate-700">
+                        <div key={dayNum} className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-600">
                             {dayNum === 0 ? "Domingo" : dayNum === 6 ? "Sábado" : `${daysOfWeekBr[dayNum].split("-")[0]}`}
                           </span>
                           <input
@@ -1274,11 +1226,20 @@ export default function AfdConverter() {
                             onChange={(e) => {
                               const val = e.target.value.replace(/[^0-9:]/g, "");
                               setSchedule(prev => ({ ...prev, [dayNum]: val }));
+                              setEmployeeCategory("custom"); // Muda para personalizado ao editar manualmente
                             }}
-                            className="w-20 text-center h-8 text-xs border border-slate-200 rounded font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                            className="w-16 text-center h-8 text-xs border border-slate-200 rounded font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none text-slate-900"
                           />
                         </div>
                       ))}
+                    </div>
+
+                    <div className="bg-slate-50 rounded-lg p-2.5 text-[11px] text-slate-500 border border-slate-150 space-y-1">
+                      <span className="font-bold text-slate-700 block">ℹ️ Detalhes do Regime:</span>
+                      {employeeCategory === "comercial" && "Seg-Sex: 8h de expediente. Intervalo não remunerado de 1h já deduzido nas batidas registadas."}
+                      {employeeCategory === "call_center" && "Seg-Sex: 6h de expediente. Intervalo não remunerado de 15 min já deduzido nas batidas. Sab: 4h (sem intervalo)."}
+                      {employeeCategory === "estagiario" && "Seg-Sex: 6h de expediente. Intervalo não remunerado de 15 min já deduzido nas batidas. Sábado livre."}
+                      {employeeCategory === "custom" && "Escala editada manualmente. Altere os horários nos campos acima de acordo com o desejado."}
                     </div>
                   </div>
                 </div>
@@ -1288,12 +1249,12 @@ export default function AfdConverter() {
               {/* Direita: Tabela Diária Detalhada e Painel de Horas Calculadas */}
               <div className="lg:col-span-8 space-y-6">
                 
-                {calcEmployee ? (
+                {calcEmployee && calcEmployee !== "all" ? (
                   <>
                     {/* Cards de Horas Fechadas */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Trabalhadas Líquidas</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Trabalhadas</p>
                         <h3 className="text-lg font-extrabold text-slate-900 font-mono mt-1">
                           {formatMinutesToHHMM(calcEmployeeReport.summary.totalWorked)}
                         </h3>
@@ -1333,7 +1294,7 @@ export default function AfdConverter() {
                       <div className="flex items-center gap-2">
                         <Clock size={18} />
                         <span className="text-xs font-semibold">
-                          Saldo Líquido Geral (Com tratamento de intervalos):
+                          Saldo Geral no Período Selecionado:
                         </span>
                       </div>
                       <span className="font-mono font-extrabold text-lg">
@@ -1349,7 +1310,7 @@ export default function AfdConverter() {
                             Espelho de Ponto Individual: <span className="text-indigo-600">{employeeMap.get(calcEmployee)}</span>
                           </h4>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            Cálculo diário aplicando as regras de intervalos ({expectedInterval} min padrão / 1h para jornadas de 7h+).
+                            Carga horária calculada a partir de **Julho de 2026**.
                           </p>
                         </div>
                         <button
@@ -1365,10 +1326,9 @@ export default function AfdConverter() {
                           <thead>
                             <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase select-none">
                               <th className="py-3 px-4">Data</th>
-                              <th className="py-3 px-4">Batidas do Dia</th>
-                              <th className="py-3 px-4 text-center">Intervalo</th>
-                              <th className="py-3 px-4 text-center">Trabalhado Pago</th>
-                              <th className="py-3 px-4 text-center">Carga Esperada</th>
+                              <th className="py-3 px-4">Marcacões do Dia</th>
+                              <th className="py-3 px-4 text-center">Trabalhado</th>
+                              <th className="py-3 px-4 text-center">Esperado</th>
                               <th className="py-3 px-4 text-right">Saldo do Dia</th>
                             </tr>
                           </thead>
@@ -1388,33 +1348,13 @@ export default function AfdConverter() {
                                     <span className="text-slate-400 italic">Falta / Sem batida</span>
                                   )}
                                   {day.isOddPunches && (
-                                    <span className="inline-block ml-2 text-[9px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold animate-pulse">
+                                    <span className="inline-block ml-2 text-[9px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold">
                                       Batida Incompleta
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-3 px-4 text-center">
-                                  {day.breakTakenMinutes > 0 ? (
-                                    <div className="flex flex-col items-center gap-0.5">
-                                      <span className="font-medium text-slate-700 font-mono">
-                                        {day.breakTakenMinutes} min
-                                      </span>
-                                      {day.breakDeductedMinutes > 0 ? (
-                                        <span className="text-[10px] text-red-500 font-bold" title={`Intervalo excedeu o limite de ${day.allowedBreak} min`}>
-                                          Desconto: -{day.breakDeductedMinutes} min
-                                        </span>
-                                      ) : (
-                                        <span className="text-[9px] bg-emerald-50 text-emerald-700 font-bold px-1 py-0.2 rounded" title="Intervalo integrado e pago">
-                                          Pago {day.isSpecialRuleApplied ? "(Regra 1h)" : ""}
-                                        </span>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <span className="text-slate-400">-</span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4 text-center font-mono font-bold text-slate-900">
-                                  {day.finalWorkedMinutes > 0 ? formatMinutesToHHMM(day.finalWorkedMinutes) : "-"}
+                                <td className="py-3 px-4 text-center font-mono font-medium">
+                                  {day.workedMinutes > 0 ? formatMinutesToHHMM(day.workedMinutes) : "-"}
                                 </td>
                                 <td className="py-3 px-4 text-center font-mono text-slate-500">
                                   {day.expectedMinutes > 0 ? formatMinutesToHHMM(day.expectedMinutes) : "-"}
@@ -1441,7 +1381,7 @@ export default function AfdConverter() {
                   <div className="flex flex-col items-center justify-center border border-dashed border-slate-200 bg-white rounded-2xl py-16 px-4">
                     <CalendarDays size={32} className="text-slate-400 mb-3" />
                     <p className="text-sm font-semibold text-slate-600">Nenhum colaborador selecionado para cálculo.</p>
-                    <p className="text-xs text-slate-400 mt-1">Utilize o painel de filtros lateral para iniciar.</p>
+                    <p className="text-xs text-slate-400 mt-1">Utilize o painel de filtros lateral para escolher o colaborador desejado.</p>
                   </div>
                 )}
 
@@ -1473,7 +1413,7 @@ export default function AfdConverter() {
               <div>
                 <h3 className="text-lg font-bold text-slate-950">Exportar Histórico de Batidas</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Feche o histórico bruto de ponto no range definido.
+                  Feche o histórico bruto de ponto no período desejado.
                 </p>
               </div>
               <button 
