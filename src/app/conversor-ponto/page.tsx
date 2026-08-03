@@ -87,7 +87,7 @@ export default function AfdConverter() {
     3: "08:00", // Quarta
     4: "08:00", // Quinta
     5: "08:00", // Sexta
-    6: "04:00", // Sábado
+    6: "00:00", // Sábado
     0: "00:00"  // Domingo
   });
 
@@ -142,7 +142,7 @@ export default function AfdConverter() {
     setEmployeeCategory(category);
     if (category === "comercial") {
       setSchedule({
-        1: "08:00", 2: "08:00", 3: "08:00", 4: "08:00", 5: "08:00", 6: "00:00", 0: "00:00"
+        1: "08:00", 2: "08:00", 3: "08:00", 4: "08:00", 5: "08:00", 6: "04:00", 0: "00:00"
       });
     } else if (category === "call_center") {
       setSchedule({
