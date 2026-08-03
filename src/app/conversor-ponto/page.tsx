@@ -87,7 +87,7 @@ export default function AfdConverter() {
     3: "08:00", // Quarta
     4: "08:00", // Quinta
     5: "08:00", // Sexta
-    6: "00:00", // Sábado
+    6: "04:00", // Sábado
     0: "00:00"  // Domingo
   });
 
