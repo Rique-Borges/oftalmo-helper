@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileText, Copy, Users, Stethoscope, ArrowRight } from "lucide-react";
+import { FileText, Copy, Users, Stethoscope, ArrowRight, ClipboardList } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 // Array com os atalhos e cores exclusivas para os ícones
@@ -8,6 +8,7 @@ const shortcuts = [
   { name: "Copia/Cola", desc: "Textos rápidos de uso frequente.", href: "/copiacola", icon: Copy, color: "text-amber-600", bg: "bg-amber-100" },
   { name: "Corpo Clínico", desc: "Lista de médicos e especialidades.", href: "/corpoclinico", icon: Users, color: "text-emerald-600", bg: "bg-emerald-100" },
   { name: "Exames/Procedimentos", desc: "Regras, laudos e agendamentos.", href: "/exames", icon: Stethoscope, color: "text-purple-600", bg: "bg-purple-100" },
+{ name: "Protocolos", desc: "Regras e normas de agendamento.", href: "/protocolos", icon: ClipboardList, color: "text-rose-600", bg: "bg-rose-100" },
 ];
 
 export default function Home() {

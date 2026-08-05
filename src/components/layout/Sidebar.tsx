@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileText, Copy, Users, Stethoscope, FileSpreadsheet } from "lucide-react";
+import { FileText, Copy, Users, Stethoscope, FileSpreadsheet, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +12,7 @@ const navItems = [
   { name: "Corpo Clínico", href: "/corpoclinico", icon: Users },
   { name: "Exames/Procedimentos", href: "/exames", icon: Stethoscope },
   { name: "Conversor AFD", href: "/conversor-ponto", icon: FileSpreadsheet },
+    { name: "Protocolos", href: "/protocolos", icon: ClipboardList },
 ];
 
 export function Sidebar() {
