@@ -23,7 +23,11 @@ import {
   TrendingUp,
   TrendingDown,
   CalendarDays,
-  Briefcase
+  Briefcase,
+  ShieldAlert,
+  Plus,
+  Trash2,
+  FileText
 } from "lucide-react";
 
 // Interfaces de Tipo
@@ -42,6 +46,19 @@ interface EmployeeRow {
   cleanId: string;
   name: string;
   totalPunches: number;
+}
+
+interface Holiday {
+  id: string;
+  dateStr: string; // Formato yyyy-mm-dd
+  description: string;
+}
+
+interface MedicalCertificate {
+  id: string;
+  rawId: string; // "all" para todos ou ID do funcionário
+  dateStr: string; // Formato yyyy-mm-dd
+  reason: string;
 }
 
 type SortField = "name" | "cleanId" | "dateObj";
@@ -91,13 +108,27 @@ export default function AfdConverter() {
     0: "00:00"  // Domingo
   });
 
+  // Novos Estados: Feriados e Atestados
+  const [holidays, setHolidays] = useState<Holiday[]>([
+    { id: "1", dateStr: "2026-07-09", description: "Revolução Constitucionalista (Exemplo)" }
+  ]);
+  const [certificates, setCertificates] = useState<MedicalCertificate[]>([]);
+
+  // Inputs temporários para cadastrar feriados e atestados
+  const [newHolidayDate, setNewHolidayDate] = useState<string>("2026-07-01");
+  const [newHolidayDesc, setNewHolidayDesc] = useState<string>("");
+
+  const [newCertDate, setNewCertDate] = useState<string>("2026-07-01");
+  const [newCertEmployee, setNewCertEmployee] = useState<string>("all");
+  const [newCertReason, setNewCertReason] = useState<string>("");
+
   // Estados de Ordenação
   const [sortField, setSortField] = useState<SortField>("dateObj");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   // Estados do Calendário Principal (Configurado para Julho/2026)
   const [currentYear, setCurrentYear] = useState<number>(2026);
-  const [currentMonth, setCurrentMonth] = useState<number>(6); // Julho é index 6 (Janeiro é 0)
+  const [currentMonth, setCurrentMonth] = useState<number>(6); // Julho é index 6
 
   const monthsBr = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -137,6 +168,44 @@ export default function AfdConverter() {
     return `${isNegative ? "-" : ""}${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
   };
 
+  // Funções para gerenciar Feriados
+  const handleAddHoliday = () => {
+    if (!newHolidayDate || !newHolidayDesc.trim()) return;
+    const exists = holidays.some(h => h.dateStr === newHolidayDate);
+    if (exists) {
+      alert("Já existe um feriado cadastrado para esta data.");
+      return;
+    }
+    setHolidays(prev => [
+      ...prev,
+      { id: Date.now().toString(), dateStr: newHolidayDate, description: newHolidayDesc.trim() }
+    ]);
+    setNewHolidayDesc("");
+  };
+
+  const handleRemoveHoliday = (id: string) => {
+    setHolidays(prev => prev.filter(h => h.id !== id));
+  };
+
+  // Funções para gerenciar Atestados
+  const handleAddCertificate = () => {
+    if (!newCertDate || !calcEmployee && newCertEmployee === "all") return;
+    setCertificates(prev => [
+      ...prev,
+      { 
+        id: Date.now().toString(), 
+        dateStr: newCertDate, 
+        rawId: newCertEmployee === "all" ? (calcEmployee !== "all" ? calcEmployee : "all") : newCertEmployee, 
+        reason: newCertReason.trim() || "Atestado Médico / Falta Abonada" 
+      }
+    ]);
+    setNewCertReason("");
+  };
+
+  const handleRemoveCertificate = (id: string) => {
+    setCertificates(prev => prev.filter(c => c.id !== id));
+  };
+
   // Executa a troca de horários automática ao alterar a categoria
   const handleCategoryChange = (category: EmployeeCategory) => {
     setEmployeeCategory(category);
@@ -146,7 +215,7 @@ export default function AfdConverter() {
       });
     } else if (category === "call_center") {
       setSchedule({
-        1: "06:00", 2: "06:00", 3: "06:00", 4: "06:00", 5: "06:00", 6: "04:00", 0: "00:00"
+        1: "06:00", 2: "06:00", 3: "06:00", 4: "06:00", 5: "06:00", 6: "06:00", 0: "00:00"
       });
     } else if (category === "estagiario") {
       setSchedule({
@@ -171,7 +240,6 @@ export default function AfdConverter() {
       const tempEmployees = new Map<string, string>();
       const tempPunches: Punch[] = [];
 
-      // Passo 1: Mapear colaboradores (Registro Tipo 5)
       for (const line of lines) {
         if (line.length < 50) continue;
         const tipo = line.substring(9, 10);
@@ -185,7 +253,6 @@ export default function AfdConverter() {
         }
       }
 
-      // Passo 2: Processar as batidas de ponto (Registro Tipo 3)
       for (const line of lines) {
         if (line.length < 45) continue;
         const tipo = line.substring(9, 10);
@@ -236,14 +303,13 @@ export default function AfdConverter() {
       setEmployeeMap(tempEmployees);
       setCurrentPage(1);
 
-      // Define os intervalos de data iniciais mantendo o padrão solicitado de Julho/2026
       setExportStartDate("2026-07-01");
       setExportEndDate("2026-07-31");
       setCalcStartDate("2026-07-01");
       setCalcEndDate("2026-07-31");
 
       setCurrentYear(2026);
-      setCurrentMonth(6); // Mantém focado em Julho/2026
+      setCurrentMonth(6);
 
       const firstEmployeeId = tempEmployees.keys().next().value;
       if (firstEmployeeId) {
@@ -252,7 +318,6 @@ export default function AfdConverter() {
     };
   };
 
-  // Processamento e agrupamento de colaboradores únicos
   const collaboratorsList = useMemo<EmployeeRow[]>(() => {
     const countsMap = new Map<string, number>();
     punches.forEach(p => {
@@ -283,7 +348,6 @@ export default function AfdConverter() {
     return list;
   }, [punches, employeeMap]);
 
-  // Filtro de busca de colaboradores
   const filteredCollaborators = useMemo(() => {
     return collaboratorsList.filter(c => 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -291,7 +355,6 @@ export default function AfdConverter() {
     );
   }, [collaboratorsList, searchTerm]);
 
-  // Filtro de colaboradores para o Combobox da exportação básica
   const filteredComboEmployees = useMemo(() => {
     return collaboratorsList.filter(emp => 
       emp.name.toLowerCase().includes(comboSearch.toLowerCase()) ||
@@ -299,7 +362,6 @@ export default function AfdConverter() {
     );
   }, [collaboratorsList, comboSearch]);
 
-  // Filtro de colaboradores para o Combobox da aba de Cálculos
   const filteredCalcComboEmployees = useMemo(() => {
     return collaboratorsList.filter(emp => 
       emp.name.toLowerCase().includes(calcComboSearch.toLowerCase()) ||
@@ -307,7 +369,6 @@ export default function AfdConverter() {
     );
   }, [collaboratorsList, calcComboSearch]);
 
-  // Filtro básico de busca de batidas
   const filteredPunches = useMemo(() => {
     return punches.filter(p => {
       const matchesSearch = 
@@ -324,7 +385,6 @@ export default function AfdConverter() {
     });
   }, [punches, searchTerm, selectedDate]);
 
-  // Ordenação dinâmica das batidas na visualização
   const sortedPunches = useMemo(() => {
     const sorted = [...filteredPunches];
     sorted.sort((a, b) => {
@@ -346,7 +406,6 @@ export default function AfdConverter() {
     return sorted;
   }, [filteredPunches, sortField, sortOrder]);
 
-  // Paginação
   const itemsPerPage = 15;
   const totalPages = Math.ceil(sortedPunches.length / itemsPerPage);
   const paginatedPunches = useMemo(() => {
@@ -373,7 +432,6 @@ export default function AfdConverter() {
       : <ArrowDown size={14} className="ml-1 text-indigo-600 inline" />;
   };
 
-  // Métricas gerais
   const metrics = useMemo(() => {
     if (punches.length === 0) return { total: 0, employees: 0, dateRange: "-" };
     
@@ -401,7 +459,6 @@ export default function AfdConverter() {
     return counts;
   }, [punches]);
 
-  // Geração de Dias do Calendário
   const calendarDays = useMemo(() => {
     const firstDay = new Date(currentYear, currentMonth, 1).getDay();
     const totalDays = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -434,7 +491,6 @@ export default function AfdConverter() {
     }
   };
 
-  // Copiar tabela de batidas da aba de Histórico
   const handleCopyToClipboard = () => {
     if (sortedPunches.length === 0) return;
 
@@ -449,7 +505,6 @@ export default function AfdConverter() {
     });
   };
 
-  // Exportar o CSV básico da modal
   const handleConfirmExport = () => {
     setExportError("");
     
@@ -506,10 +561,9 @@ export default function AfdConverter() {
   };
 
   // =======================================================
-  // ENGINE DE CÁLCULO DE HORAS (FECHAMENTO INDIVIDUAL)
+  // ENGINE DE CÁLCULO DE HORAS (FECHAMENTO INDIVIDUAL) COM FERIADOS E ATESTADOS
   // =======================================================
 
-  // Gera lista contínua de datas no range de Julho/2026
   const calcDatesRange = useMemo<string[]>(() => {
     if (!calcStartDate || !calcEndDate) return [];
     
@@ -525,7 +579,6 @@ export default function AfdConverter() {
     return dates;
   }, [calcStartDate, calcEndDate]);
 
-  // Estrutura calculada diária com base na categoria e escala
   const calcEmployeeReport = useMemo(() => {
     if (!calcEmployee || calcEmployee === "all" || calcDatesRange.length === 0) {
       return { days: [], summary: { totalWorked: 0, totalExpected: 0, totalOvertime: 0, totalPending: 0, finalBalance: 0 } };
@@ -546,11 +599,22 @@ export default function AfdConverter() {
         .filter(p => p.dateObj.toLocaleDateString("sv-SE") === dateStr)
         .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime());
 
-      // Horas Esperadas (Escala baseada na Categoria Selecionada)
-      const expectedLoadStr = schedule[dayOfWeek] || "00:00";
-      const expectedMinutes = parseHHMMToMinutes(expectedLoadStr);
+      // Verificar se é Feriado
+      const holidayInfo = holidays.find(h => h.dateStr === dateStr);
+      // Verificar se possui Atestado / Falta Remunerada
+      const certInfo = certificates.find(c => c.dateStr === dateStr && (c.rawId === "all" || c.rawId === calcEmployee));
 
-      // Horas Trabalhadas de fato (Intervalos reais entre batidas de ponto)
+      let expectedLoadStr = schedule[dayOfWeek] || "00:00";
+      let expectedMinutes = parseHHMMToMinutes(expectedLoadStr);
+
+      let isHoliday = !!holidayInfo;
+      let isCertificate = !!certInfo;
+
+      // Se for feriado ou atestado, abonamos a carga esperada do dia
+      if (isHoliday || isCertificate) {
+        expectedMinutes = 0; // Zera a cobrança esperada de trabalho nesse dia
+      }
+
       let workedMinutes = 0;
       const isOddPunches = dayPunches.length % 2 !== 0;
       const loops = isOddPunches ? dayPunches.length - 1 : dayPunches.length;
@@ -561,14 +625,20 @@ export default function AfdConverter() {
         workedMinutes += Math.round((t2 - t1) / 60000);
       }
 
-      // Calcula Horas Extras e Horas Pendentes (Atraso/Falta)
       let overtimeMinutes = 0;
       let pendingMinutes = 0;
 
-      if (workedMinutes > expectedMinutes) {
-        overtimeMinutes = workedMinutes - expectedMinutes;
-      } else if (workedMinutes < expectedMinutes) {
-        pendingMinutes = expectedMinutes - workedMinutes;
+      if (!isHoliday && !isCertificate) {
+        if (workedMinutes > expectedMinutes) {
+          overtimeMinutes = workedMinutes - expectedMinutes;
+        } else if (workedMinutes < expectedMinutes) {
+          pendingMinutes = expectedMinutes - workedMinutes;
+        }
+      } else {
+        // Se trabalhou no feriado/atestado, pode gerar hora extra
+        if (workedMinutes > 0) {
+          overtimeMinutes = workedMinutes;
+        }
       }
 
       totalWorked += workedMinutes;
@@ -588,6 +658,10 @@ export default function AfdConverter() {
         dayName: daysOfWeekBr[dayOfWeek],
         punchesList: punchesListText,
         isOddPunches,
+        isHoliday,
+        holidayDesc: holidayInfo?.description,
+        isCertificate,
+        certReason: certInfo?.reason,
         workedMinutes,
         expectedMinutes,
         overtimeMinutes,
@@ -607,25 +681,24 @@ export default function AfdConverter() {
         finalBalance
       }
     };
-  }, [calcEmployee, calcDatesRange, punches, schedule]);
+  }, [calcEmployee, calcDatesRange, punches, schedule, holidays, certificates]);
 
-  // Exportar o fechamento detalhado em CSV
   const handleExportCalculatedCSV = () => {
     if (calcEmployee === "all" || !calcEmployee || calcEmployeeReport.days.length === 0) return;
 
     const employeeName = employeeMap.get(calcEmployee) || "Colaborador";
     const employeeCPF = formatCPFOrPIS(calcEmployee);
 
-    const headers = ["Data", "Dia da Semana", "Marcacoes de Ponto", "Trabalhado (HH:MM)", "Carga Esperada (HH:MM)", "Hora Extra (HH:MM)", "Pendente/Falta (HH:MM)", "Incompletas"];
+    const headers = ["Data", "Dia da Semana", "Marcacoes de Ponto", "Ocorrencia/Abono", "Trabalhado (HH:MM)", "Carga Esperada (HH:MM)", "Hora Extra (HH:MM)", "Pendente/Falta (HH:MM)"];
     const rows = calcEmployeeReport.days.map(d => [
       d.dateStr,
       d.dayName,
-      d.punchesList || "Falta/Sem batida",
+      d.punchesList || "Sem batida",
+      d.isHoliday ? `Feriado: ${d.holidayDesc}` : d.isCertificate ? `Atestado: ${d.certReason}` : "Normal",
       formatMinutesToHHMM(d.workedMinutes),
       formatMinutesToHHMM(d.expectedMinutes),
       formatMinutesToHHMM(d.overtimeMinutes),
-      formatMinutesToHHMM(d.pendingMinutes),
-      d.isOddPunches ? "Sim (Batida Impar)" : "Nao"
+      formatMinutesToHHMM(d.pendingMinutes)
     ]);
 
     const s = calcEmployeeReport.summary;
@@ -634,7 +707,6 @@ export default function AfdConverter() {
       ["RESUMO DO FECHAMENTO DO COLABORADOR"],
       ["Nome", employeeName],
       ["CPF/PIS", employeeCPF],
-      ["Regime de Trabalho", employeeCategory === "comercial" ? "Horario Comercial" : employeeCategory === "call_center" ? "Call Center" : employeeCategory === "estagiario" ? "Estagiario" : "Personalizado"],
       ["Periodo", `${calcStartDate} ate ${calcEndDate}`],
       ["Total Horas Trabalhadas", formatMinutesToHHMM(s.totalWorked)],
       ["Total Carga Esperada", formatMinutesToHHMM(s.totalExpected)],
@@ -683,7 +755,6 @@ export default function AfdConverter() {
           </p>
         </div>
         
-        {/* Upload Zone */}
         <div className="flex items-center gap-3">
           <input
             type="file"
@@ -722,7 +793,6 @@ export default function AfdConverter() {
         </div>
       )}
 
-      {/* Cards de Métricas Gerais do Arquivo */}
       {punches.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
@@ -774,7 +844,6 @@ export default function AfdConverter() {
       ) : (
         <div className="space-y-6">
           
-          {/* Seletor de Abas (Tabs) */}
           <div className="flex flex-wrap border-b border-slate-200">
             <button
               onClick={() => { setActiveTab("batidas"); clearFilters(); }}
@@ -809,13 +878,8 @@ export default function AfdConverter() {
           </div>
 
           {activeTab === "batidas" && (
-            /* VIEW 1: HISTÓRICO DE BATIDAS */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              {/* Calendário e Busca Lateral */}
               <div className="lg:col-span-4 space-y-6">
-                
-                {/* Calendário */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-bold text-slate-950 flex items-center gap-2">
@@ -891,7 +955,6 @@ export default function AfdConverter() {
                   )}
                 </div>
 
-                {/* Caixa de Busca */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
                   <h4 className="font-semibold text-xs uppercase tracking-wider text-slate-500">Filtrar Colaborador</h4>
                   <div className="relative">
@@ -916,14 +979,10 @@ export default function AfdConverter() {
                     </button>
                   )}
                 </div>
-
               </div>
 
-              {/* Tabela de Batidas */}
               <div className="lg:col-span-8 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between">
                 <div>
-                  
-                  {/* Cabeçalho Superior de Ações */}
                   <div className="p-4 border-b border-slate-150 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50/55">
                     <div>
                       <h3 className="font-bold text-slate-900">Histórico de Batidas</h3>
@@ -960,27 +1019,17 @@ export default function AfdConverter() {
                     </div>
                   </div>
 
-                  {/* Tabela Responsiva */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-100 bg-slate-50/75 text-xs font-semibold text-slate-500 uppercase select-none">
-                          <th 
-                            onClick={() => handleSort("name")}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition"
-                          >
+                          <th onClick={() => handleSort("name")} className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition">
                             Nome do Colaborador {renderSortIcon("name")}
                           </th>
-                          <th 
-                            onClick={() => handleSort("cleanId")}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition"
-                          >
+                          <th onClick={() => handleSort("cleanId")} className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition">
                             Identificação {renderSortIcon("cleanId")}
                           </th>
-                          <th 
-                            onClick={() => handleSort("dateObj")}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition"
-                          >
+                          <th onClick={() => handleSort("dateObj")} className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition">
                             Data e Hora {renderSortIcon("dateObj")}
                           </th>
                         </tr>
@@ -1006,7 +1055,6 @@ export default function AfdConverter() {
                   </div>
                 </div>
 
-                {/* Controle de Paginação */}
                 {totalPages > 1 && (
                   <div className="p-4 border-t border-slate-100 flex items-center justify-between">
                     <span className="text-xs text-slate-500">
@@ -1030,17 +1078,12 @@ export default function AfdConverter() {
                     </div>
                   </div>
                 )}
-
               </div>
-
             </div>
           )}
 
           {activeTab === "colaboradores" && (
-            /* VIEW 2: CADASTRO DE COLABORADORES ENCONTRADOS */
             <div className="space-y-4">
-              
-              {/* Barra de Busca Exclusiva para Colaboradores */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="relative max-w-md w-full">
                   <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
@@ -1057,7 +1100,6 @@ export default function AfdConverter() {
                 </div>
               </div>
 
-              {/* Grid de Colaboradores */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredCollaborators.length === 0 ? (
                   <div className="col-span-full py-12 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white">
@@ -1083,15 +1125,13 @@ export default function AfdConverter() {
                   ))
                 )}
               </div>
-
             </div>
           )}
 
           {activeTab === "calculo" && (
-            /* VIEW 3: CÁLCULO & FECHAMENTO DE HORAS EXTRAS/PENDENTES */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
-              {/* Esquerda: Configurador de Escalas e Filtros de Fechamento */}
+              {/* Esquerda: Filtros, Escala, Feriados e Atestados */}
               <div className="lg:col-span-4 space-y-6">
                 
                 {/* 1. Seleção de Período e Colaborador */}
@@ -1100,7 +1140,6 @@ export default function AfdConverter() {
                     <User size={18} className="text-indigo-600" /> Filtros de Fechamento
                   </h3>
 
-                  {/* Seletor Combobox Pesquisável */}
                   <div className="space-y-1.5 relative">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                       Selecione o Colaborador
@@ -1159,7 +1198,6 @@ export default function AfdConverter() {
                     )}
                   </div>
 
-                  {/* Range de Data - Iniciando a partir de Julho 2026 */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Início</label>
@@ -1182,7 +1220,127 @@ export default function AfdConverter() {
                   </div>
                 </div>
 
-                {/* 2. Dropbox de Categoria de Funcionários e Escala de Trabalho */}
+                {/* 2. Gerenciamento de Feriados */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+                  <h3 className="font-bold text-slate-950 flex items-center gap-2">
+                    <CalendarDays size={18} className="text-amber-600" /> Feriados Cadastrados
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Insira feriados para abonar automaticamente a carga horária da equipe no dia.
+                  </p>
+
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        value={newHolidayDate}
+                        onChange={(e) => setNewHolidayDate(e.target.value)}
+                        className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Nome do feriado..."
+                        value={newHolidayDesc}
+                        onChange={(e) => setNewHolidayDesc(e.target.value)}
+                        className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
+                      />
+                    </div>
+                    <button
+                      onClick={handleAddHoliday}
+                      className="w-full h-9 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-md transition flex items-center justify-center gap-1.5"
+                    >
+                      <Plus size={14} /> Adicionar Feriado
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto divide-y divide-slate-100">
+                    {holidays.map(h => (
+                      <div key={h.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="font-bold text-slate-900">{new Date(h.dateStr + "T00:00:00").toLocaleDateString("pt-BR")}</span>
+                          <span className="block text-[11px] text-slate-500">{h.description}</span>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveHoliday(h.id)}
+                          className="text-slate-400 hover:text-red-500 p-1 transition"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    {holidays.length === 0 && (
+                      <p className="text-xs text-slate-400 text-center py-2">Nenhum feriado cadastrado.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Gerenciamento de Atestados / Faltas Remuneradas */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+                  <h3 className="font-bold text-slate-950 flex items-center gap-2">
+                    <FileText size={18} className="text-emerald-600" /> Atestados & Faltas Abonadas
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Adicione atestados médicos para abonar faltas e zerar o saldo negativo do colaborador no dia.
+                  </p>
+
+                  <div className="space-y-2">
+                    <input
+                      type="date"
+                      value={newCertDate}
+                      onChange={(e) => setNewCertDate(e.target.value)}
+                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
+                    />
+                    <select
+                      value={newCertEmployee}
+                      onChange={(e) => setNewCertEmployee(e.target.value)}
+                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 font-medium"
+                    >
+                      <option value="all">👥 Para o Colaborador Atual Selecionado</option>
+                      {collaboratorsList.map(emp => (
+                        <option key={emp.rawId} value={emp.rawId}>{emp.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Motivo / CID (Ex: Consulta Médica)..."
+                      value={newCertReason}
+                      onChange={(e) => setNewCertReason(e.target.value)}
+                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
+                    />
+                    <button
+                      onClick={handleAddCertificate}
+                      className="w-full h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-md transition flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Plus size={14} /> Registrar Atestado / Falta Abonada
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto divide-y divide-slate-100">
+                    {certificates.map(c => {
+                      const empName = c.rawId === "all" ? "Geral" : (employeeMap.get(c.rawId) || "Colaborador");
+                      return (
+                        <div key={c.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-bold text-slate-900">{new Date(c.dateStr + "T00:00:00").toLocaleDateString("pt-BR")}</span>
+                            <span className="block text-[11px] text-indigo-600 font-medium">{empName}</span>
+                            <span className="block text-[10px] text-slate-500">{c.reason}</span>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveCertificate(c.id)}
+                            className="text-slate-400 hover:text-red-500 p-1 transition"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {certificates.length === 0 && (
+                      <p className="text-xs text-slate-400 text-center py-2">Nenhum atestado cadastrado.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Dropbox de Categoria de Funcionários e Escala de Trabalho */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="font-bold text-slate-950 flex items-center gap-2">
@@ -1190,7 +1348,6 @@ export default function AfdConverter() {
                     </h3>
                   </div>
 
-                  {/* Dropbox de Categorias (Horário Comercial, Call Center e Estagiários) */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                       Selecione o Regime de Trabalho
@@ -1226,20 +1383,12 @@ export default function AfdConverter() {
                             onChange={(e) => {
                               const val = e.target.value.replace(/[^0-9:]/g, "");
                               setSchedule(prev => ({ ...prev, [dayNum]: val }));
-                              setEmployeeCategory("custom"); // Muda para personalizado ao editar manualmente
+                              setEmployeeCategory("custom");
                             }}
                             className="w-16 text-center h-8 text-xs border border-slate-200 rounded font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none text-slate-900"
                           />
                         </div>
                       ))}
-                    </div>
-
-                    <div className="bg-slate-50 rounded-lg p-2.5 text-[11px] text-slate-500 border border-slate-150 space-y-1">
-                      <span className="font-bold text-slate-700 block">ℹ️ Detalhes do Regime:</span>
-                      {employeeCategory === "comercial" && "Seg-Sex: 8h de expediente. Intervalo não remunerado de 1h já deduzido nas batidas registadas."}
-                      {employeeCategory === "call_center" && "Seg-Sex: 6h de expediente. Intervalo não remunerado de 15 min já deduzido nas batidas. Sab: 4h (sem intervalo)."}
-                      {employeeCategory === "estagiario" && "Seg-Sex: 6h de expediente. Intervalo não remunerado de 15 min já deduzido nas batidas. Sábado livre."}
-                      {employeeCategory === "custom" && "Escala editada manualmente. Altere os horários nos campos acima de acordo com o desejado."}
                     </div>
                   </div>
                 </div>
@@ -1251,7 +1400,6 @@ export default function AfdConverter() {
                 
                 {calcEmployee && calcEmployee !== "all" ? (
                   <>
-                    {/* Cards de Horas Fechadas */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                         <p className="text-[10px] font-bold text-slate-400 uppercase">Trabalhadas</p>
@@ -1285,7 +1433,6 @@ export default function AfdConverter() {
                       </div>
                     </div>
 
-                    {/* Alerta de Saldo Final */}
                     <div className={`p-4 rounded-xl border flex items-center justify-between ${
                       calcEmployeeReport.summary.finalBalance >= 0 
                         ? "bg-emerald-50 border-emerald-100 text-emerald-900" 
@@ -1302,7 +1449,6 @@ export default function AfdConverter() {
                       </span>
                     </div>
 
-                    {/* Tabela do Espelho Diário Detalhado */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-4 border-b border-slate-150 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50/55">
                         <div>
@@ -1310,7 +1456,7 @@ export default function AfdConverter() {
                             Espelho de Ponto Individual: <span className="text-indigo-600">{employeeMap.get(calcEmployee)}</span>
                           </h4>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            Carga horária calculada a partir de **Julho de 2026**.
+                            Carga horária calculada a partir de Julho de 2026.
                           </p>
                         </div>
                         <button
@@ -1327,6 +1473,7 @@ export default function AfdConverter() {
                             <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase select-none">
                               <th className="py-3 px-4">Data</th>
                               <th className="py-3 px-4">Marcacões do Dia</th>
+                              <th className="py-3 px-4">Ocorrência / Abono</th>
                               <th className="py-3 px-4 text-center">Trabalhado</th>
                               <th className="py-3 px-4 text-center">Esperado</th>
                               <th className="py-3 px-4 text-right">Saldo do Dia</th>
@@ -1345,12 +1492,27 @@ export default function AfdConverter() {
                                       {day.punchesList}
                                     </span>
                                   ) : (
-                                    <span className="text-slate-400 italic">Falta / Sem batida</span>
+                                    <span className="text-slate-400 italic">Sem batida</span>
                                   )}
                                   {day.isOddPunches && (
                                     <span className="inline-block ml-2 text-[9px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold">
                                       Batida Incompleta
                                     </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4">
+                                  {day.isHoliday && (
+                                    <span className="inline-block bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[10px] font-bold">
+                                      🌴 Feriado: {day.holidayDesc}
+                                    </span>
+                                  )}
+                                  {day.isCertificate && (
+                                    <span className="inline-block bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-bold">
+                                      🏥 Atestado: {day.certReason}
+                                    </span>
+                                  )}
+                                  {!day.isHoliday && !day.isCertificate && (
+                                    <span className="text-slate-400">-</span>
                                   )}
                                 </td>
                                 <td className="py-3 px-4 text-center font-mono font-medium">
@@ -1393,12 +1555,9 @@ export default function AfdConverter() {
         </div>
       )}
 
-      {/* ======================================================= */}
-      {/* MODAL DE EXPORTAÇÃO BÁSICA (ESTILO SHADCN UI) */}
-      {/* ======================================================= */}
+      {/* MODAL DE EXPORTAÇÃO BÁSICA */}
       {isExportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          
           <div 
             className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-200" 
             onClick={() => {
@@ -1408,7 +1567,6 @@ export default function AfdConverter() {
           />
           
           <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 relative z-10 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-4">
-            
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-950">Exportar Histórico de Batidas</h3>
@@ -1428,7 +1586,6 @@ export default function AfdConverter() {
             </div>
 
             <div className="space-y-4 my-2">
-              
               <div className="space-y-2 relative">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Colaborador
@@ -1453,7 +1610,6 @@ export default function AfdConverter() {
 
                 {isComboOpen && (
                   <div className="absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md flex flex-col">
-                    
                     <div className="flex items-center border-b border-slate-100 px-3 py-2">
                       <Search size={14} className="text-slate-400 mr-2 shrink-0" />
                       <input
@@ -1498,23 +1654,14 @@ export default function AfdConverter() {
                           <span className="text-[10px] font-mono text-slate-400">CPF/PIS: {emp.cleanId}</span>
                         </button>
                       ))}
-
-                      {filteredComboEmployees.length === 0 && (
-                        <div className="text-xs text-slate-400 py-4 text-center">
-                          Nenhum colaborador encontrado.
-                        </div>
-                      )}
                     </div>
-
                   </div>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    De (Início)
-                  </label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">De (Início)</label>
                   <input
                     type="date"
                     value={exportStartDate}
@@ -1523,9 +1670,7 @@ export default function AfdConverter() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    Até (Fim)
-                  </label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Até (Fim)</label>
                   <input
                     type="date"
                     value={exportEndDate}
@@ -1541,7 +1686,6 @@ export default function AfdConverter() {
                   <span>{exportError}</span>
                 </div>
               )}
-
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
@@ -1561,7 +1705,6 @@ export default function AfdConverter() {
                 <FileSpreadsheet size={14} /> Exportar CSV
               </button>
             </div>
-
           </div>
         </div>
       )}
