@@ -1,230 +1,45 @@
 "use client";
 
 import React, { useState, useMemo, useRef } from "react";
-import { 
-  Upload, 
-  Calendar as CalendarIcon, 
-  User, 
-  FileSpreadsheet, 
-  Search, 
-  ChevronLeft, 
-  ChevronRight, 
-  CheckCircle, 
-  Users, 
-  Clock,
-  ClipboardCheck,
-  RefreshCw,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  X,
-  AlertCircle,
-  Settings,
-  TrendingUp,
-  TrendingDown,
-  CalendarDays,
-  Briefcase,
-  ShieldAlert,
-  Plus,
-  Trash2,
-  FileText
-} from "lucide-react";
+import { Upload, Clock, Users, Settings, RefreshCw, CheckCircle } from "lucide-react";
 
-// Interfaces de Tipo
-interface Punch {
-  nsr: string;
-  rawId: string;
-  cleanId: string;
-  name: string;
-  timestamp: string;
-  dateObj: Date;
-  formattedDate: string; // Formato: dd/mm/aaaa hh:mm
-}
+import { Punch, EmployeeRow, SortField, SortOrder } from "@/lib/conversor-ponto/types";
+import { parseAfdText } from "@/lib/conversor-ponto/afd-parser";
+import { exportPunchesToCsv } from "@/lib/conversor-ponto/export-csv";
+import { formatCPFOrPIS } from "@/lib/conversor-ponto/utils";
 
-interface EmployeeRow {
-  rawId: string;
-  cleanId: string;
-  name: string;
-  totalPunches: number;
-}
+import { MetricsCards } from "@/components/conversor-ponto/MetricsCards";
+import { PunchHistoryTab } from "@/components/conversor-ponto/PunchHistoryTab";
+import { CollaboratorsTab } from "@/components/conversor-ponto/CollaboratorsTab";
+import { CalculationTab } from "@/components/conversor-ponto/CalculationTab";
+import { ExportCsvModal } from "@/components/conversor-ponto/ExportCsvModal";
 
-interface Holiday {
-  id: string;
-  dateStr: string; // Formato yyyy-mm-dd
-  description: string;
-}
-
-interface MedicalCertificate {
-  id: string;
-  rawId: string; // "all" para todos ou ID do funcionário
-  dateStr: string; // Formato yyyy-mm-dd
-  reason: string;
-}
-
-type SortField = "name" | "cleanId" | "dateObj";
-type SortOrder = "asc" | "desc";
-type EmployeeCategory = "comercial" | "call_center" | "estagiario" | "custom";
-
-export default function AfdConverter() {
+export default function AfdConverterPage() {
   const [activeTab, setActiveTab] = useState<"batidas" | "colaboradores" | "calculo">("batidas");
   const [punches, setPunches] = useState<Punch[]>([]);
   const [employeeMap, setEmployeeMap] = useState<Map<string, string>>(new Map());
   const [fileName, setFileName] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estados de Filtros e Paginação
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [copied, setCopied] = useState<boolean>(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Estados do Modal de Exportação Básica (Inicializados em Julho/2026)
-  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
-  const [exportEmployee, setExportEmployee] = useState<string>("all");
-  const [exportStartDate, setExportStartDate] = useState<string>("2026-07-01");
-  const [exportEndDate, setExportEndDate] = useState<string>("2026-07-31");
-  const [exportError, setExportError] = useState<string>("");
-
-  // Estados do Combobox Pesquisável (Exportação Básica)
-  const [isComboOpen, setIsComboOpen] = useState<boolean>(false);
-  const [comboSearch, setComboSearch] = useState<string>("");
-
-  // Estados do Painel de Cálculo - Aba 3 (Inicializados em Julho/2026)
-  const [calcEmployee, setCalcEmployee] = useState<string>("all");
-  const [calcStartDate, setCalcStartDate] = useState<string>("2026-07-01");
-  const [calcEndDate, setCalcEndDate] = useState<string>("2026-07-31");
-  const [isCalcComboOpen, setIsCalcComboOpen] = useState<boolean>(false);
-  const [calcComboSearch, setCalcComboSearch] = useState<string>("");
-
-  // Categoria de Funcionários (Dropbox)
-  const [employeeCategory, setEmployeeCategory] = useState<EmployeeCategory>("comercial");
-
-  // Escala de Trabalho Padrão (Seg: 1, Ter: 2, Qua: 3, Qui: 4, Sex: 5, Sab: 6, Dom: 0)
-  const [schedule, setSchedule] = useState<Record<number, string>>({
-    1: "08:00", // Segunda
-    2: "08:00", // Terça
-    3: "08:00", // Quarta
-    4: "08:00", // Quinta
-    5: "08:00", // Sexta
-    6: "04:00", // Sábado
-    0: "00:00"  // Domingo
-  });
-
-  // Novos Estados: Feriados e Atestados
-  const [holidays, setHolidays] = useState<Holiday[]>([
-    { id: "1", dateStr: "2026-07-09", description: "Revolução Constitucionalista (Exemplo)" }
-  ]);
-  const [certificates, setCertificates] = useState<MedicalCertificate[]>([]);
-
-  // Inputs temporários para cadastrar feriados e atestados
-  const [newHolidayDate, setNewHolidayDate] = useState<string>("2026-07-01");
-  const [newHolidayDesc, setNewHolidayDesc] = useState<string>("");
-
-  const [newCertDate, setNewCertDate] = useState<string>("2026-07-01");
-  const [newCertEmployee, setNewCertEmployee] = useState<string>("all");
-  const [newCertReason, setNewCertReason] = useState<string>("");
-
-  // Estados de Ordenação
   const [sortField, setSortField] = useState<SortField>("dateObj");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  // Estados do Calendário Principal (Configurado para Julho/2026)
+  // Estados de Navegação no Calendário (Julho/2026)
   const [currentYear, setCurrentYear] = useState<number>(2026);
-  const [currentMonth, setCurrentMonth] = useState<number>(6); // Julho é index 6
+  const [currentMonth, setCurrentMonth] = useState<number>(6);
 
-  const monthsBr = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-  ];
+  // Estados de Fechamento / Cálculo
+  const [calcEmployee, setCalcEmployee] = useState<string>("all");
+  const [calcStartDate, setCalcStartDate] = useState<string>("2026-07-01");
+  const [calcEndDate, setCalcEndDate] = useState<string>("2026-07-31");
 
-  const daysOfWeekBr = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+  // Modal de Exportação
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
 
-  // Helper para formatar CPF/PIS
-  const formatCPFOrPIS = (id: string): string => {
-    const clean = id.trim();
-    let target = clean;
-    if (clean.length === 12 && ["0", "8", "9"].includes(clean[0])) {
-      target = clean.substring(1);
-    }
-    
-    if (target.length === 11) {
-      return target.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-    }
-    return target;
-  };
-
-  // Conversores de Tempo auxiliares
-  const parseHHMMToMinutes = (val: string): number => {
-    if (!val) return 0;
-    const parts = val.split(":");
-    const h = parseInt(parts[0], 10) || 0;
-    const m = parseInt(parts[1], 10) || 0;
-    return h * 60 + m;
-  };
-
-  const formatMinutesToHHMM = (totalMinutes: number): string => {
-    const isNegative = totalMinutes < 0;
-    const absMinutes = Math.abs(totalMinutes);
-    const hours = Math.floor(absMinutes / 60);
-    const mins = absMinutes % 60;
-    return `${isNegative ? "-" : ""}${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
-  };
-
-  // Funções para gerenciar Feriados
-  const handleAddHoliday = () => {
-    if (!newHolidayDate || !newHolidayDesc.trim()) return;
-    const exists = holidays.some(h => h.dateStr === newHolidayDate);
-    if (exists) {
-      alert("Já existe um feriado cadastrado para esta data.");
-      return;
-    }
-    setHolidays(prev => [
-      ...prev,
-      { id: Date.now().toString(), dateStr: newHolidayDate, description: newHolidayDesc.trim() }
-    ]);
-    setNewHolidayDesc("");
-  };
-
-  const handleRemoveHoliday = (id: string) => {
-    setHolidays(prev => prev.filter(h => h.id !== id));
-  };
-
-  // Funções para gerenciar Atestados
-  const handleAddCertificate = () => {
-    if (!newCertDate || !calcEmployee && newCertEmployee === "all") return;
-    setCertificates(prev => [
-      ...prev,
-      { 
-        id: Date.now().toString(), 
-        dateStr: newCertDate, 
-        rawId: newCertEmployee === "all" ? (calcEmployee !== "all" ? calcEmployee : "all") : newCertEmployee, 
-        reason: newCertReason.trim() || "Atestado Médico / Falta Abonada" 
-      }
-    ]);
-    setNewCertReason("");
-  };
-
-  const handleRemoveCertificate = (id: string) => {
-    setCertificates(prev => prev.filter(c => c.id !== id));
-  };
-
-  // Executa a troca de horários automática ao alterar a categoria
-  const handleCategoryChange = (category: EmployeeCategory) => {
-    setEmployeeCategory(category);
-    if (category === "comercial") {
-      setSchedule({
-        1: "08:00", 2: "08:00", 3: "08:00", 4: "08:00", 5: "08:00", 6: "04:00", 0: "00:00"
-      });
-    } else if (category === "call_center") {
-      setSchedule({
-        1: "06:00", 2: "06:00", 3: "06:00", 4: "06:00", 5: "06:00", 6: "06:00", 0: "00:00"
-      });
-    } else if (category === "estagiario") {
-      setSchedule({
-        1: "06:00", 2: "06:00", 3: "06:00", 4: "06:00", 5: "06:00", 6: "00:00", 0: "00:00"
-      });
-    }
-  };
-
-  // Parser do arquivo AFD Portaria 671
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -235,83 +50,13 @@ export default function AfdConverter() {
     reader.readAsText(file, "ISO-8859-1");
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      const lines = text.split(/\r?\n/);
+      const parsed = parseAfdText(text);
 
-      const tempEmployees = new Map<string, string>();
-      const tempPunches: Punch[] = [];
-
-      for (const line of lines) {
-        if (line.length < 50) continue;
-        const tipo = line.substring(9, 10);
-        
-        if (tipo === "5") {
-          const rawId = line.substring(35, 47).trim();
-          const name = line.substring(47, 99).trim();
-          if (rawId && name) {
-            tempEmployees.set(rawId, name);
-          }
-        }
-      }
-
-      for (const line of lines) {
-        if (line.length < 45) continue;
-        const tipo = line.substring(9, 10);
-
-        if (tipo === "3") {
-          const nsr = line.substring(0, 9).trim();
-          const rawTimestamp = line.substring(10, 34).trim();
-          const rawId = line.substring(34, 46).trim();
-
-          if (!rawTimestamp || !rawId) continue;
-
-          let name = tempEmployees.get(rawId) || "Colaborador Não Cadastrado";
-          
-          if (name === "Colaborador Não Cadastrado" && rawId.startsWith("0")) {
-            const withoutZero = rawId.substring(1);
-            for (const [empId, empName] of tempEmployees.entries()) {
-              if (empId.endsWith(withoutZero)) {
-                name = empName;
-                break;
-              }
-            }
-          }
-
-          const dateObj = new Date(rawTimestamp);
-          if (isNaN(dateObj.getTime())) continue;
-
-          const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-          const dd = String(dateObj.getDate()).padStart(2, '0');
-          const yyyy = dateObj.getFullYear();
-          const hh = String(dateObj.getHours()).padStart(2, '0');
-          const min = String(dateObj.getMinutes()).padStart(2, '0');
-
-          const formattedDate = `${dd}/${mm}/${yyyy} ${hh}:${min}`;
-
-          tempPunches.push({
-            nsr,
-            rawId,
-            cleanId: formatCPFOrPIS(rawId),
-            name,
-            timestamp: rawTimestamp,
-            dateObj,
-            formattedDate
-          });
-        }
-      }
-
-      setPunches(tempPunches);
-      setEmployeeMap(tempEmployees);
+      setPunches(parsed.punches);
+      setEmployeeMap(parsed.employeeMap);
       setCurrentPage(1);
 
-      setExportStartDate("2026-07-01");
-      setExportEndDate("2026-07-31");
-      setCalcStartDate("2026-07-01");
-      setCalcEndDate("2026-07-31");
-
-      setCurrentYear(2026);
-      setCurrentMonth(6);
-
-      const firstEmployeeId = tempEmployees.keys().next().value;
+      const firstEmployeeId = parsed.employeeMap.keys().next().value;
       if (firstEmployeeId) {
         setCalcEmployee(firstEmployeeId);
       }
@@ -320,9 +65,7 @@ export default function AfdConverter() {
 
   const collaboratorsList = useMemo<EmployeeRow[]>(() => {
     const countsMap = new Map<string, number>();
-    punches.forEach(p => {
-      countsMap.set(p.rawId, (countsMap.get(p.rawId) || 0) + 1);
-    });
+    punches.forEach(p => countsMap.set(p.rawId, (countsMap.get(p.rawId) || 0) + 1));
 
     const list: EmployeeRow[] = [];
     employeeMap.forEach((name, rawId) => {
@@ -348,105 +91,17 @@ export default function AfdConverter() {
     return list;
   }, [punches, employeeMap]);
 
-  const filteredCollaborators = useMemo(() => {
-    return collaboratorsList.filter(c => 
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      c.cleanId.includes(searchTerm)
-    );
-  }, [collaboratorsList, searchTerm]);
-
-  const filteredComboEmployees = useMemo(() => {
-    return collaboratorsList.filter(emp => 
-      emp.name.toLowerCase().includes(comboSearch.toLowerCase()) ||
-      emp.cleanId.includes(comboSearch)
-    );
-  }, [collaboratorsList, comboSearch]);
-
-  const filteredCalcComboEmployees = useMemo(() => {
-    return collaboratorsList.filter(emp => 
-      emp.name.toLowerCase().includes(calcComboSearch.toLowerCase()) ||
-      emp.cleanId.includes(calcComboSearch)
-    );
-  }, [collaboratorsList, calcComboSearch]);
-
-  const filteredPunches = useMemo(() => {
-    return punches.filter(p => {
-      const matchesSearch = 
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        p.cleanId.includes(searchTerm);
-
-      let matchesDate = true;
-      if (selectedDate) {
-        const localDateStr = p.dateObj.toLocaleDateString("sv-SE");
-        matchesDate = localDateStr === selectedDate;
-      }
-
-      return matchesSearch && matchesDate;
-    });
-  }, [punches, searchTerm, selectedDate]);
-
-  const sortedPunches = useMemo(() => {
-    const sorted = [...filteredPunches];
-    sorted.sort((a, b) => {
-      let valA: any = a[sortField];
-      let valB: any = b[sortField];
-
-      if (sortField === "dateObj") {
-        valA = a.dateObj.getTime();
-        valB = b.dateObj.getTime();
-      } else {
-        valA = String(valA).toLowerCase();
-        valB = String(valB).toLowerCase();
-      }
-
-      if (valA < valB) return sortOrder === "asc" ? -1 : 1;
-      if (valA > valB) return sortOrder === "asc" ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [filteredPunches, sortField, sortOrder]);
-
-  const itemsPerPage = 15;
-  const totalPages = Math.ceil(sortedPunches.length / itemsPerPage);
-  const paginatedPunches = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return sortedPunches.slice(startIndex, startIndex + itemsPerPage);
-  }, [sortedPunches, currentPage]);
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortField(field);
-      setSortOrder("asc");
-    }
-    setCurrentPage(1);
-  };
-
-  const renderSortIcon = (field: SortField) => {
-    if (sortField !== field) {
-      return <ArrowUpDown size={14} className="ml-1 text-slate-400 inline" />;
-    }
-    return sortOrder === "asc" 
-      ? <ArrowUp size={14} className="ml-1 text-indigo-600 inline" /> 
-      : <ArrowDown size={14} className="ml-1 text-indigo-600 inline" />;
-  };
-
   const metrics = useMemo(() => {
     if (punches.length === 0) return { total: 0, employees: 0, dateRange: "-" };
-    
     const uniqueEmployees = new Set(punches.map(p => p.rawId)).size;
     const dates = punches.map(p => p.dateObj.getTime());
     const minDate = new Date(Math.min(...dates));
     const maxDate = new Date(Math.max(...dates));
-    
     const formatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-    const dateRange = `${formatter.format(minDate)} até ${formatter.format(maxDate)}`;
-
     return {
       total: punches.length,
       employees: uniqueEmployees,
-      dateRange
+      dateRange: `${formatter.format(minDate)} até ${formatter.format(maxDate)}`
     };
   }, [punches]);
 
@@ -459,282 +114,6 @@ export default function AfdConverter() {
     return counts;
   }, [punches]);
 
-  const calendarDays = useMemo(() => {
-    const firstDay = new Date(currentYear, currentMonth, 1).getDay();
-    const totalDays = new Date(currentYear, currentMonth + 1, 0).getDate();
-    
-    const days = [];
-    for (let i = 0; i < firstDay; i++) {
-      days.push(null);
-    }
-    for (let day = 1; day <= totalDays; day++) {
-      days.push(day);
-    }
-    return days;
-  }, [currentYear, currentMonth]);
-
-  const handlePrevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11);
-      setCurrentYear(prev => prev - 1);
-    } else {
-      setCurrentMonth(prev => prev - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0);
-      setCurrentYear(prev => prev + 1);
-    } else {
-      setCurrentMonth(prev => prev + 1);
-    }
-  };
-
-  const handleCopyToClipboard = () => {
-    if (sortedPunches.length === 0) return;
-
-    let textToCopy = "Nome\tIdentificação (CPF/PIS)\tData e Hora\n";
-    sortedPunches.forEach(p => {
-      textToCopy += `${p.name}\t${p.cleanId}\t${p.formattedDate}\n`;
-    });
-
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  const handleConfirmExport = () => {
-    setExportError("");
-    
-    const start = exportStartDate ? new Date(exportStartDate + "T00:00:00") : null;
-    const end = exportEndDate ? new Date(exportEndDate + "T23:59:59") : null;
-
-    const filteredToExport = punches.filter(p => {
-      const matchesEmployee = exportEmployee === "all" || p.rawId === exportEmployee;
-      const matchesStart = !start || p.dateObj >= start;
-      const matchesEnd = !end || p.dateObj <= end;
-      return matchesEmployee && matchesStart && matchesEnd;
-    });
-
-    if (filteredToExport.length === 0) {
-      setExportError("Nenhuma marcação encontrada no período e filtros informados.");
-      return;
-    }
-
-    const headers = ["Nome", "Identificação (CPF/PIS)", "Data e Hora"];
-    const rows = filteredToExport.map(p => [
-      p.name,
-      p.cleanId,
-      p.formattedDate
-    ]);
-
-    const csvContent = 
-      "\uFEFF" + 
-      [headers.join(";"), ...rows.map(row => row.map(val => `"${val.replace(/"/g, '""')}"`).join(";"))].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    
-    let fileNameStr = "fechamento_ponto";
-    if (exportEmployee !== "all") {
-      const nameClean = (employeeMap.get(exportEmployee) || "colaborador")
-        .toLowerCase()
-        .replace(/\s+/g, "_")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
-      fileNameStr += `_${nameClean}`;
-    }
-    if (exportStartDate && exportEndDate) {
-      fileNameStr += `_de_${exportStartDate}_a_${exportEndDate}`;
-    }
-
-    link.setAttribute("download", `${fileNameStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    setIsExportModalOpen(false);
-  };
-
-  // =======================================================
-  // ENGINE DE CÁLCULO DE HORAS (FECHAMENTO INDIVIDUAL) COM FERIADOS E ATESTADOS
-  // =======================================================
-
-  const calcDatesRange = useMemo<string[]>(() => {
-    if (!calcStartDate || !calcEndDate) return [];
-    
-    const dates: string[] = [];
-    const start = new Date(calcStartDate + "T00:00:00");
-    const end = new Date(calcEndDate + "T00:00:00");
-    const current = new Date(start);
-
-    while (current <= end) {
-      dates.push(current.toLocaleDateString("sv-SE"));
-      current.setDate(current.getDate() + 1);
-    }
-    return dates;
-  }, [calcStartDate, calcEndDate]);
-
-  const calcEmployeeReport = useMemo(() => {
-    if (!calcEmployee || calcEmployee === "all" || calcDatesRange.length === 0) {
-      return { days: [], summary: { totalWorked: 0, totalExpected: 0, totalOvertime: 0, totalPending: 0, finalBalance: 0 } };
-    }
-
-    const employeePunches = punches.filter(p => p.rawId === calcEmployee);
-
-    let totalWorked = 0;
-    let totalExpected = 0;
-    let totalOvertime = 0;
-    let totalPending = 0;
-
-    const calculatedDays = calcDatesRange.map(dateStr => {
-      const currentDateObj = new Date(dateStr + "T00:00:00");
-      const dayOfWeek = currentDateObj.getDay();
-
-      const dayPunches = employeePunches
-        .filter(p => p.dateObj.toLocaleDateString("sv-SE") === dateStr)
-        .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime());
-
-      // Verificar se é Feriado
-      const holidayInfo = holidays.find(h => h.dateStr === dateStr);
-      // Verificar se possui Atestado / Falta Remunerada
-      const certInfo = certificates.find(c => c.dateStr === dateStr && (c.rawId === "all" || c.rawId === calcEmployee));
-
-      let expectedLoadStr = schedule[dayOfWeek] || "00:00";
-      let expectedMinutes = parseHHMMToMinutes(expectedLoadStr);
-
-      let isHoliday = !!holidayInfo;
-      let isCertificate = !!certInfo;
-
-      // Se for feriado ou atestado, abonamos a carga esperada do dia
-      if (isHoliday || isCertificate) {
-        expectedMinutes = 0; // Zera a cobrança esperada de trabalho nesse dia
-      }
-
-      let workedMinutes = 0;
-      const isOddPunches = dayPunches.length % 2 !== 0;
-      const loops = isOddPunches ? dayPunches.length - 1 : dayPunches.length;
-
-      for (let i = 0; i < loops; i += 2) {
-        const t1 = dayPunches[i].dateObj.getTime();
-        const t2 = dayPunches[i+1].dateObj.getTime();
-        workedMinutes += Math.round((t2 - t1) / 60000);
-      }
-
-      let overtimeMinutes = 0;
-      let pendingMinutes = 0;
-
-      if (!isHoliday && !isCertificate) {
-        if (workedMinutes > expectedMinutes) {
-          overtimeMinutes = workedMinutes - expectedMinutes;
-        } else if (workedMinutes < expectedMinutes) {
-          pendingMinutes = expectedMinutes - workedMinutes;
-        }
-      } else {
-        // Se trabalhou no feriado/atestado, pode gerar hora extra
-        if (workedMinutes > 0) {
-          overtimeMinutes = workedMinutes;
-        }
-      }
-
-      totalWorked += workedMinutes;
-      totalExpected += expectedMinutes;
-      totalOvertime += overtimeMinutes;
-      totalPending += pendingMinutes;
-
-      const punchesListText = dayPunches.map(p => {
-        const h = String(p.dateObj.getHours()).padStart(2, "0");
-        const m = String(p.dateObj.getMinutes()).padStart(2, "0");
-        return `${h}:${m}`;
-      }).join(" | ");
-
-      return {
-        dateStr,
-        formattedDate: currentDateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-        dayName: daysOfWeekBr[dayOfWeek],
-        punchesList: punchesListText,
-        isOddPunches,
-        isHoliday,
-        holidayDesc: holidayInfo?.description,
-        isCertificate,
-        certReason: certInfo?.reason,
-        workedMinutes,
-        expectedMinutes,
-        overtimeMinutes,
-        pendingMinutes
-      };
-    });
-
-    const finalBalance = totalOvertime - totalPending;
-
-    return {
-      days: calculatedDays,
-      summary: {
-        totalWorked,
-        totalExpected,
-        totalOvertime,
-        totalPending,
-        finalBalance
-      }
-    };
-  }, [calcEmployee, calcDatesRange, punches, schedule, holidays, certificates]);
-
-  const handleExportCalculatedCSV = () => {
-    if (calcEmployee === "all" || !calcEmployee || calcEmployeeReport.days.length === 0) return;
-
-    const employeeName = employeeMap.get(calcEmployee) || "Colaborador";
-    const employeeCPF = formatCPFOrPIS(calcEmployee);
-
-    const headers = ["Data", "Dia da Semana", "Marcacoes de Ponto", "Ocorrencia/Abono", "Trabalhado (HH:MM)", "Carga Esperada (HH:MM)", "Hora Extra (HH:MM)", "Pendente/Falta (HH:MM)"];
-    const rows = calcEmployeeReport.days.map(d => [
-      d.dateStr,
-      d.dayName,
-      d.punchesList || "Sem batida",
-      d.isHoliday ? `Feriado: ${d.holidayDesc}` : d.isCertificate ? `Atestado: ${d.certReason}` : "Normal",
-      formatMinutesToHHMM(d.workedMinutes),
-      formatMinutesToHHMM(d.expectedMinutes),
-      formatMinutesToHHMM(d.overtimeMinutes),
-      formatMinutesToHHMM(d.pendingMinutes)
-    ]);
-
-    const s = calcEmployeeReport.summary;
-    const summaryRows = [
-      [],
-      ["RESUMO DO FECHAMENTO DO COLABORADOR"],
-      ["Nome", employeeName],
-      ["CPF/PIS", employeeCPF],
-      ["Periodo", `${calcStartDate} ate ${calcEndDate}`],
-      ["Total Horas Trabalhadas", formatMinutesToHHMM(s.totalWorked)],
-      ["Total Carga Esperada", formatMinutesToHHMM(s.totalExpected)],
-      ["Total Horas Extras", formatMinutesToHHMM(s.totalOvertime)],
-      ["Total Horas Pendentes", formatMinutesToHHMM(s.totalPending)],
-      ["Saldo Final", formatMinutesToHHMM(s.finalBalance)]
-    ];
-
-    const csvContent = 
-      "\uFEFF" + 
-      [
-        headers.join(";"), 
-        ...rows.map(row => row.map(val => `"${val.replace(/"/g, '""')}"`).join(";")),
-        ...summaryRows.map(row => row.map(val => `"${val.replace(/"/g, '""')}"`).join(";"))
-      ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-
-    const employeeFileName = employeeName.toLowerCase().replace(/\s+/g, "_");
-    link.setAttribute("download", `fechamento_${employeeFileName}_${calcStartDate}_a_${calcEndDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const clearFilters = () => {
     setSelectedDate(null);
     setSearchTerm("");
@@ -743,8 +122,7 @@ export default function AfdConverter() {
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 md:p-6 space-y-6 text-slate-800 relative">
-      
-      {/* Top Banner & Header */}
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-950 flex items-center gap-2">
@@ -754,7 +132,7 @@ export default function AfdConverter() {
             Gere relatórios simplificados e envie tabelas limpas ao setor financeiro.
           </p>
         </div>
-        
+
         <div className="flex items-center gap-3">
           <input
             type="file"
@@ -793,37 +171,7 @@ export default function AfdConverter() {
         </div>
       )}
 
-      {punches.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className="p-3 rounded-lg bg-indigo-50 text-indigo-600">
-              <Clock size={24} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total de Batidas</p>
-              <h3 className="text-xl font-bold text-slate-900">{metrics.total}</h3>
-            </div>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className="p-3 rounded-lg bg-emerald-50 text-emerald-600">
-              <Users size={24} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Colaboradores no Arquivo</p>
-              <h3 className="text-xl font-bold text-slate-900">{metrics.employees}</h3>
-            </div>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className="p-3 rounded-lg bg-amber-50 text-amber-600">
-              <CalendarIcon size={24} />
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Período de Registro</p>
-              <h3 className="text-sm font-bold text-slate-900 mt-1">{metrics.dateRange}</h3>
-            </div>
-          </div>
-        </div>
-      )}
+      {punches.length > 0 && <MetricsCards metrics={metrics} />}
 
       {punches.length === 0 ? (
         <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl py-16 px-4 bg-slate-50/55">
@@ -834,16 +182,10 @@ export default function AfdConverter() {
           <p className="text-slate-500 text-sm max-w-md text-center mt-2">
             Importe o arquivo AFD exportado pelo seu sistema ControlID para iniciar.
           </p>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="mt-6 flex items-center gap-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold py-2 px-5 rounded-lg transition text-sm"
-          >
-            Selecionar Arquivo
-          </button>
         </div>
       ) : (
         <div className="space-y-6">
-          
+          {/* Navegação de Abas */}
           <div className="flex flex-wrap border-b border-slate-200">
             <button
               onClick={() => { setActiveTab("batidas"); clearFilters(); }}
@@ -878,837 +220,63 @@ export default function AfdConverter() {
           </div>
 
           {activeTab === "batidas" && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-4 space-y-6">
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-bold text-slate-950 flex items-center gap-2">
-                      <CalendarIcon size={16} className="text-indigo-600" /> Consultar por Dia
-                    </h3>
-                    <div className="flex items-center gap-1">
-                      <button onClick={handlePrevMonth} className="p-1 hover:bg-slate-100 rounded text-slate-600">
-                        <ChevronLeft size={16} />
-                      </button>
-                      <span className="text-xs font-bold text-slate-700 w-24 text-center">
-                        {monthsBr[currentMonth]} {currentYear}
-                      </span>
-                      <button onClick={handleNextMonth} className="p-1 hover:bg-slate-100 rounded text-slate-600">
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-slate-500 mb-2">
-                    <div>Dom</div>
-                    <div>Seg</div>
-                    <div>Ter</div>
-                    <div>Qua</div>
-                    <div>Qui</div>
-                    <div>Sex</div>
-                    <div>Sáb</div>
-                  </div>
-
-                  <div className="grid grid-cols-7 gap-1">
-                    {calendarDays.map((day, idx) => {
-                      if (day === null) return <div key={`empty-${idx}`} className="h-8" />;
-                      
-                      const monthStr = String(currentMonth + 1).padStart(2, "0");
-                      const dayStr = String(day).padStart(2, "0");
-                      const fullDateStr = `${currentYear}-${monthStr}-${dayStr}`;
-                      
-                      const count = punchesCountByDay[fullDateStr] || 0;
-                      const isSelected = selectedDate === fullDateStr;
-
-                      return (
-                        <button
-                          key={`day-${day}`}
-                          onClick={() => setSelectedDate(isSelected ? null : fullDateStr)}
-                          className={`h-9 rounded-lg flex flex-col items-center justify-center relative text-xs font-medium transition ${
-                            isSelected 
-                              ? "bg-indigo-600 text-white" 
-                              : count > 0 
-                                ? "bg-indigo-50 text-indigo-900 hover:bg-indigo-100" 
-                                : "text-slate-400 hover:bg-slate-50"
-                          }`}
-                        >
-                          <span>{day}</span>
-                          {count > 0 && (
-                            <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${isSelected ? "bg-white" : "bg-indigo-600"}`} />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {selectedDate && (
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <span className="text-xs text-slate-600">
-                        Dia selecionado: <strong>{new Date(selectedDate + "T00:00:00").toLocaleDateString("pt-BR")}</strong>
-                      </span>
-                      <button 
-                        onClick={() => setSelectedDate(null)}
-                        className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold"
-                      >
-                        Limpar dia
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
-                  <h4 className="font-semibold text-xs uppercase tracking-wider text-slate-500">Filtrar Colaborador</h4>
-                  <div className="relative">
-                    <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Buscar nome ou CPF..."
-                      value={searchTerm}
-                      onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                      className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </div>
-                  {(searchTerm || selectedDate) && (
-                    <button
-                      onClick={clearFilters}
-                      className="w-full text-center py-2 text-xs font-medium text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition"
-                    >
-                      Limpar Filtros
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="lg:col-span-8 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between">
-                <div>
-                  <div className="p-4 border-b border-slate-150 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50/55">
-                    <div>
-                      <h3 className="font-bold text-slate-900">Histórico de Batidas</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Mostrando {sortedPunches.length} {sortedPunches.length === 1 ? "registro" : "registros"}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <button
-                        onClick={handleCopyToClipboard}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold py-2 px-3 rounded-lg transition"
-                      >
-                        {copied ? (
-                          <>
-                            <ClipboardCheck size={14} className="text-emerald-600" /> Copiado!
-                          </>
-                        ) : (
-                          <>
-                            <User size={14} /> Copiar Tabela
-                          </>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setExportError("");
-                          setComboSearch("");
-                          setIsExportModalOpen(true);
-                        }}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition shadow-sm"
-                      >
-                        <FileSpreadsheet size={14} /> Exportar CSV
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50/75 text-xs font-semibold text-slate-500 uppercase select-none">
-                          <th onClick={() => handleSort("name")} className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition">
-                            Nome do Colaborador {renderSortIcon("name")}
-                          </th>
-                          <th onClick={() => handleSort("cleanId")} className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition">
-                            Identificação {renderSortIcon("cleanId")}
-                          </th>
-                          <th onClick={() => handleSort("dateObj")} className="py-3 px-4 cursor-pointer hover:bg-slate-100 transition">
-                            Data e Hora {renderSortIcon("dateObj")}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-sm">
-                        {paginatedPunches.length === 0 ? (
-                          <tr>
-                            <td colSpan={3} className="py-8 text-center text-slate-400">
-                              Nenhuma batida encontrada para os filtros aplicados.
-                            </td>
-                          </tr>
-                        ) : (
-                          paginatedPunches.map((punch) => (
-                            <tr key={punch.nsr} className="hover:bg-slate-50/50 transition">
-                              <td className="py-3 px-4 font-semibold text-slate-900">{punch.name}</td>
-                              <td className="py-3 px-4 font-mono text-xs text-slate-600">{punch.cleanId}</td>
-                              <td className="py-3 px-4 font-medium text-slate-700">{punch.formattedDate}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {totalPages > 1 && (
-                  <div className="p-4 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-xs text-slate-500">
-                      Página <strong>{currentPage}</strong> de {totalPages}
-                    </span>
-                    <div className="flex gap-1">
-                      <button
-                        disabled={currentPage === 1}
-                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                        className="p-1.5 border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-50 text-slate-700"
-                      >
-                        <ChevronLeft size={16} />
-                      </button>
-                      <button
-                        disabled={currentPage === totalPages}
-                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                        className="p-1.5 border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-50 text-slate-700"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <PunchHistoryTab
+              punches={punches}
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+              currentPage={currentPage}
+              setCurrentPage={setCurrentPage}
+              sortField={sortField}
+              setSortField={setSortField}
+              sortOrder={sortOrder}
+              setSortOrder={setSortOrder}
+              currentYear={currentYear}
+              setCurrentYear={setCurrentYear}
+              currentMonth={currentMonth}
+              setCurrentMonth={setCurrentMonth}
+              punchesCountByDay={punchesCountByDay}
+              onOpenExportModal={() => setIsExportModalOpen(true)}
+              onClearFilters={clearFilters}
+            />
           )}
 
           {activeTab === "colaboradores" && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="relative max-w-md w-full">
-                  <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Filtrar por Nome ou CPF..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-                <div className="text-xs text-slate-500 font-medium">
-                  {filteredCollaborators.length} de {collaboratorsList.length} colaboradores listados
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredCollaborators.length === 0 ? (
-                  <div className="col-span-full py-12 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white">
-                    Nenhum colaborador corresponde à busca.
-                  </div>
-                ) : (
-                  filteredCollaborators.map((colab) => (
-                    <div 
-                      key={colab.rawId} 
-                      className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition duration-200 flex flex-col justify-between gap-3"
-                    >
-                      <div className="space-y-1">
-                        <h4 className="font-bold text-slate-900 line-clamp-1">{colab.name}</h4>
-                        <p className="text-xs font-mono text-slate-500">CPF/PIS: {colab.cleanId}</p>
-                      </div>
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                        <span className="text-slate-500">Batidas encontradas:</span>
-                        <span className="inline-block bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded">
-                          {colab.totalPunches} {colab.totalPunches === 1 ? "registro" : "registros"}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+            <CollaboratorsTab
+              collaboratorsList={collaboratorsList}
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+            />
           )}
 
           {activeTab === "calculo" && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              {/* Esquerda: Filtros, Escala, Feriados e Atestados */}
-              <div className="lg:col-span-4 space-y-6">
-                
-                {/* 1. Seleção de Período e Colaborador */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <h3 className="font-bold text-slate-950 flex items-center gap-2">
-                    <User size={18} className="text-indigo-600" /> Filtros de Fechamento
-                  </h3>
-
-                  <div className="space-y-1.5 relative">
-                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                      Selecione o Colaborador
-                    </label>
-                    
-                    <button
-                      type="button"
-                      onClick={() => setIsCalcComboOpen(!isCalcComboOpen)}
-                      className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                    >
-                      <span className="truncate">
-                        {calcEmployee && calcEmployee !== "all"
-                          ? (employeeMap.get(calcEmployee) || "Selecionar...") 
-                          : "Selecione um colaborador..."}
-                      </span>
-                      <ArrowUpDown size={14} className="opacity-50 shrink-0 ml-2" />
-                    </button>
-
-                    {isCalcComboOpen && (
-                      <div className="fixed inset-0 z-40 cursor-default" onClick={() => setIsCalcComboOpen(false)} />
-                    )}
-
-                    {isCalcComboOpen && (
-                      <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md flex flex-col">
-                        <div className="flex items-center border-b border-slate-100 px-3 py-2">
-                          <Search size={14} className="text-slate-400 mr-2 shrink-0" />
-                          <input
-                            type="text"
-                            placeholder="Buscar nome..."
-                            value={calcComboSearch}
-                            onChange={(e) => setCalcComboSearch(e.target.value)}
-                            className="w-full text-sm outline-none border-none bg-transparent placeholder:text-slate-400 text-slate-900 p-0 focus:ring-0"
-                            autoFocus
-                          />
-                        </div>
-                        <div className="overflow-y-auto max-h-40 py-1 divide-y divide-slate-50">
-                          {filteredCalcComboEmployees.map(emp => (
-                            <button
-                              key={emp.rawId}
-                              type="button"
-                              onClick={() => {
-                                setCalcEmployee(emp.rawId);
-                                setIsCalcComboOpen(false);
-                                setCalcComboSearch("");
-                              }}
-                              className={`w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 transition flex flex-col gap-0.5 ${
-                                calcEmployee === emp.rawId ? "bg-indigo-50/50 text-indigo-700 font-semibold" : "text-slate-700"
-                              }`}
-                            >
-                              <span className="truncate">{emp.name}</span>
-                              <span className="text-[10px] text-slate-400 font-mono">CPF/PIS: {emp.cleanId}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Início</label>
-                      <input
-                        type="date"
-                        value={calcStartDate}
-                        onChange={(e) => setCalcStartDate(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Fim</label>
-                      <input
-                        type="date"
-                        value={calcEndDate}
-                        onChange={(e) => setCalcEndDate(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Gerenciamento de Feriados */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <h3 className="font-bold text-slate-950 flex items-center gap-2">
-                    <CalendarDays size={18} className="text-amber-600" /> Feriados Cadastrados
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Insira feriados para abonar automaticamente a carga horária da equipe no dia.
-                  </p>
-
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="date"
-                        value={newHolidayDate}
-                        onChange={(e) => setNewHolidayDate(e.target.value)}
-                        className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Nome do feriado..."
-                        value={newHolidayDesc}
-                        onChange={(e) => setNewHolidayDesc(e.target.value)}
-                        className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
-                      />
-                    </div>
-                    <button
-                      onClick={handleAddHoliday}
-                      className="w-full h-9 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-md transition flex items-center justify-center gap-1.5"
-                    >
-                      <Plus size={14} /> Adicionar Feriado
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto divide-y divide-slate-100">
-                    {holidays.map(h => (
-                      <div key={h.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
-                        <div>
-                          <span className="font-bold text-slate-900">{new Date(h.dateStr + "T00:00:00").toLocaleDateString("pt-BR")}</span>
-                          <span className="block text-[11px] text-slate-500">{h.description}</span>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveHoliday(h.id)}
-                          className="text-slate-400 hover:text-red-500 p-1 transition"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                    {holidays.length === 0 && (
-                      <p className="text-xs text-slate-400 text-center py-2">Nenhum feriado cadastrado.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* 3. Gerenciamento de Atestados / Faltas Remuneradas */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <h3 className="font-bold text-slate-950 flex items-center gap-2">
-                    <FileText size={18} className="text-emerald-600" /> Atestados & Faltas Abonadas
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Adicione atestados médicos para abonar faltas e zerar o saldo negativo do colaborador no dia.
-                  </p>
-
-                  <div className="space-y-2">
-                    <input
-                      type="date"
-                      value={newCertDate}
-                      onChange={(e) => setNewCertDate(e.target.value)}
-                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
-                    />
-                    <select
-                      value={newCertEmployee}
-                      onChange={(e) => setNewCertEmployee(e.target.value)}
-                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 font-medium"
-                    >
-                      <option value="all">👥 Para o Colaborador Atual Selecionado</option>
-                      {collaboratorsList.map(emp => (
-                        <option key={emp.rawId} value={emp.rawId}>{emp.name}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="Motivo / CID (Ex: Consulta Médica)..."
-                      value={newCertReason}
-                      onChange={(e) => setNewCertReason(e.target.value)}
-                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900"
-                    />
-                    <button
-                      onClick={handleAddCertificate}
-                      className="w-full h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-md transition flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <Plus size={14} /> Registrar Atestado / Falta Abonada
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto divide-y divide-slate-100">
-                    {certificates.map(c => {
-                      const empName = c.rawId === "all" ? "Geral" : (employeeMap.get(c.rawId) || "Colaborador");
-                      return (
-                        <div key={c.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
-                          <div>
-                            <span className="font-bold text-slate-900">{new Date(c.dateStr + "T00:00:00").toLocaleDateString("pt-BR")}</span>
-                            <span className="block text-[11px] text-indigo-600 font-medium">{empName}</span>
-                            <span className="block text-[10px] text-slate-500">{c.reason}</span>
-                          </div>
-                          <button
-                            onClick={() => handleRemoveCertificate(c.id)}
-                            className="text-slate-400 hover:text-red-500 p-1 transition"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {certificates.length === 0 && (
-                      <p className="text-xs text-slate-400 text-center py-2">Nenhum atestado cadastrado.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* 4. Dropbox de Categoria de Funcionários e Escala de Trabalho */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-slate-950 flex items-center gap-2">
-                      <Briefcase size={18} className="text-indigo-600" /> Categoria do Regime
-                    </h3>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Selecione o Regime de Trabalho
-                    </label>
-                    <select
-                      value={employeeCategory}
-                      onChange={(e) => handleCategoryChange(e.target.value as EmployeeCategory)}
-                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:border-transparent transition cursor-pointer font-medium"
-                    >
-                      <option value="comercial">💼 Horário Comercial (8h Seg-Sex)</option>
-                      <option value="call_center">🎧 Call Center (6h Seg-Sex / 4h Sáb)</option>
-                      <option value="estagiario">🎓 Estagiário (6h Seg-Sex)</option>
-                      <option value="custom">⚙️ Personalizado (Editar escala abaixo)</option>
-                    </select>
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-100 space-y-3">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Escala Esperada</span>
-                      <span className="text-[9px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded">Carga (HH:MM)</span>
-                    </div>
-                    
-                    <div className="space-y-2.5">
-                      {[1, 2, 3, 4, 5, 6, 0].map((dayNum) => (
-                        <div key={dayNum} className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-600">
-                            {dayNum === 0 ? "Domingo" : dayNum === 6 ? "Sábado" : `${daysOfWeekBr[dayNum].split("-")[0]}`}
-                          </span>
-                          <input
-                            type="text"
-                            placeholder="00:00"
-                            value={schedule[dayNum]}
-                            onChange={(e) => {
-                              const val = e.target.value.replace(/[^0-9:]/g, "");
-                              setSchedule(prev => ({ ...prev, [dayNum]: val }));
-                              setEmployeeCategory("custom");
-                            }}
-                            className="w-16 text-center h-8 text-xs border border-slate-200 rounded font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none text-slate-900"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Direita: Tabela Diária Detalhada e Painel de Horas Calculadas */}
-              <div className="lg:col-span-8 space-y-6">
-                
-                {calcEmployee && calcEmployee !== "all" ? (
-                  <>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Trabalhadas</p>
-                        <h3 className="text-lg font-extrabold text-slate-900 font-mono mt-1">
-                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalWorked)}
-                        </h3>
-                      </div>
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Esperadas (Escala)</p>
-                        <h3 className="text-lg font-extrabold text-slate-900 font-mono mt-1">
-                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalExpected)}
-                        </h3>
-                      </div>
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">Extras (+)</p>
-                          <TrendingUp size={14} className="text-emerald-500" />
-                        </div>
-                        <h3 className="text-lg font-extrabold text-emerald-600 font-mono mt-1">
-                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalOvertime)}
-                        </h3>
-                      </div>
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                        <div className="flex items-center justify-between">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">Faltas/Pendentes (-)</p>
-                          <TrendingDown size={14} className="text-red-500" />
-                        </div>
-                        <h3 className="text-lg font-extrabold text-red-600 font-mono mt-1">
-                          {formatMinutesToHHMM(calcEmployeeReport.summary.totalPending)}
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className={`p-4 rounded-xl border flex items-center justify-between ${
-                      calcEmployeeReport.summary.finalBalance >= 0 
-                        ? "bg-emerald-50 border-emerald-100 text-emerald-900" 
-                        : "bg-red-50 border-red-100 text-red-900"
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        <Clock size={18} />
-                        <span className="text-xs font-semibold">
-                          Saldo Geral no Período Selecionado:
-                        </span>
-                      </div>
-                      <span className="font-mono font-extrabold text-lg">
-                        {formatMinutesToHHMM(calcEmployeeReport.summary.finalBalance)}
-                      </span>
-                    </div>
-
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-4 border-b border-slate-150 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50/55">
-                        <div>
-                          <h4 className="font-bold text-slate-900">
-                            Espelho de Ponto Individual: <span className="text-indigo-600">{employeeMap.get(calcEmployee)}</span>
-                          </h4>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            Carga horária calculada a partir de Julho de 2026.
-                          </p>
-                        </div>
-                        <button
-                          onClick={handleExportCalculatedCSV}
-                          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition shadow-sm"
-                        >
-                          <FileSpreadsheet size={14} /> Exportar Fechamento (CSV)
-                        </button>
-                      </div>
-
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase select-none">
-                              <th className="py-3 px-4">Data</th>
-                              <th className="py-3 px-4">Marcacões do Dia</th>
-                              <th className="py-3 px-4">Ocorrência / Abono</th>
-                              <th className="py-3 px-4 text-center">Trabalhado</th>
-                              <th className="py-3 px-4 text-center">Esperado</th>
-                              <th className="py-3 px-4 text-right">Saldo do Dia</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-xs">
-                            {calcEmployeeReport.days.map((day) => (
-                              <tr key={day.dateStr} className="hover:bg-slate-50/40 transition">
-                                <td className="py-3 px-4 font-medium text-slate-900">
-                                  {day.formattedDate}
-                                  <span className="block text-[10px] text-slate-400 font-normal">{day.dayName}</span>
-                                </td>
-                                <td className="py-3 px-4">
-                                  {day.punchesList ? (
-                                    <span className="font-mono text-slate-700 bg-slate-50 border border-slate-150 px-2 py-0.5 rounded">
-                                      {day.punchesList}
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-400 italic">Sem batida</span>
-                                  )}
-                                  {day.isOddPunches && (
-                                    <span className="inline-block ml-2 text-[9px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold">
-                                      Batida Incompleta
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4">
-                                  {day.isHoliday && (
-                                    <span className="inline-block bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[10px] font-bold">
-                                      🌴 Feriado: {day.holidayDesc}
-                                    </span>
-                                  )}
-                                  {day.isCertificate && (
-                                    <span className="inline-block bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-bold">
-                                      🏥 Atestado: {day.certReason}
-                                    </span>
-                                  )}
-                                  {!day.isHoliday && !day.isCertificate && (
-                                    <span className="text-slate-400">-</span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4 text-center font-mono font-medium">
-                                  {day.workedMinutes > 0 ? formatMinutesToHHMM(day.workedMinutes) : "-"}
-                                </td>
-                                <td className="py-3 px-4 text-center font-mono text-slate-500">
-                                  {day.expectedMinutes > 0 ? formatMinutesToHHMM(day.expectedMinutes) : "-"}
-                                </td>
-                                <td className="py-3 px-4 text-right font-mono">
-                                  {day.overtimeMinutes > 0 && (
-                                    <span className="text-emerald-600 font-bold">+{formatMinutesToHHMM(day.overtimeMinutes)}</span>
-                                  )}
-                                  {day.pendingMinutes > 0 && (
-                                    <span className="text-red-500">-{formatMinutesToHHMM(day.pendingMinutes)}</span>
-                                  )}
-                                  {day.overtimeMinutes === 0 && day.pendingMinutes === 0 && (
-                                    <span className="text-slate-400">-</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center border border-dashed border-slate-200 bg-white rounded-2xl py-16 px-4">
-                    <CalendarDays size={32} className="text-slate-400 mb-3" />
-                    <p className="text-sm font-semibold text-slate-600">Nenhum colaborador selecionado para cálculo.</p>
-                    <p className="text-xs text-slate-400 mt-1">Utilize o painel de filtros lateral para escolher o colaborador desejado.</p>
-                  </div>
-                )}
-
-              </div>
-
-            </div>
+            <CalculationTab
+              punches={punches}
+              employeeMap={employeeMap}
+              collaboratorsList={collaboratorsList}
+              calcEmployee={calcEmployee}
+              setCalcEmployee={setCalcEmployee}
+              calcStartDate={calcStartDate}
+              setCalcStartDate={setCalcStartDate}
+              calcEndDate={calcEndDate}
+              setCalcEndDate={setCalcEndDate}
+            />
           )}
-
         </div>
       )}
 
-      {/* MODAL DE EXPORTAÇÃO BÁSICA */}
-      {isExportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity duration-200" 
-            onClick={() => {
-              setIsExportModalOpen(false);
-              setIsComboOpen(false);
-            }}
-          />
-          
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 relative z-10 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-slate-950">Exportar Histórico de Batidas</h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Feche o histórico bruto de ponto no período desejado.
-                </p>
-              </div>
-              <button 
-                onClick={() => {
-                  setIsExportModalOpen(false);
-                  setIsComboOpen(false);
-                }}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-4 my-2">
-              <div className="space-y-2 relative">
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Colaborador
-                </label>
-                
-                <button
-                  type="button"
-                  onClick={() => setIsComboOpen(!isComboOpen)}
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                >
-                  <span className="truncate">
-                    {exportEmployee === "all" 
-                      ? "Todos os Colaboradores" 
-                      : (employeeMap.get(exportEmployee) || "Selecionar colaborador...")}
-                  </span>
-                  <ArrowUpDown size={14} className="opacity-50 shrink-0 ml-2" />
-                </button>
-
-                {isComboOpen && (
-                  <div className="fixed inset-0 z-40 cursor-default" onClick={() => setIsComboOpen(false)} />
-                )}
-
-                {isComboOpen && (
-                  <div className="absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-hidden rounded-md border border-slate-200 bg-white p-1 shadow-md flex flex-col">
-                    <div className="flex items-center border-b border-slate-100 px-3 py-2">
-                      <Search size={14} className="text-slate-400 mr-2 shrink-0" />
-                      <input
-                        type="text"
-                        placeholder="Pesquisar colaborador..."
-                        value={comboSearch}
-                        onChange={(e) => setComboSearch(e.target.value)}
-                        className="w-full text-sm outline-none border-none bg-transparent placeholder:text-slate-400 text-slate-900 p-0 focus:ring-0"
-                        autoFocus
-                      />
-                    </div>
-
-                    <div className="overflow-y-auto max-h-44 py-1 divide-y divide-slate-50">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExportEmployee("all");
-                          setIsComboOpen(false);
-                          setComboSearch("");
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 transition truncate font-medium ${
-                          exportEmployee === "all" ? "text-indigo-600 bg-indigo-50/50" : "text-slate-700"
-                        }`}
-                      >
-                        Todos os Colaboradores
-                      </button>
-                      
-                      {filteredComboEmployees.map(emp => (
-                        <button
-                          key={emp.rawId}
-                          type="button"
-                          onClick={() => {
-                            setExportEmployee(emp.rawId);
-                            setIsComboOpen(false);
-                            setComboSearch("");
-                          }}
-                          className={`w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 transition truncate flex flex-col gap-0.5 ${
-                            exportEmployee === emp.rawId ? "bg-indigo-50/50 text-indigo-700 font-semibold" : "text-slate-700"
-                          }`}
-                        >
-                          <span className="truncate">{emp.name}</span>
-                          <span className="text-[10px] font-mono text-slate-400">CPF/PIS: {emp.cleanId}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">De (Início)</label>
-                  <input
-                    type="date"
-                    value={exportStartDate}
-                    onChange={(e) => setExportStartDate(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Até (Fim)</label>
-                  <input
-                    type="date"
-                    value={exportEndDate}
-                    onChange={(e) => setExportEndDate(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              {exportError && (
-                <div className="flex items-center gap-2 p-3 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg">
-                  <AlertCircle size={16} className="shrink-0" />
-                  <span>{exportError}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
-              <button
-                onClick={() => {
-                  setIsExportModalOpen(false);
-                  setIsComboOpen(false);
-                }}
-                className="h-10 px-4 py-2 border border-slate-200 rounded-md hover:bg-slate-50 text-slate-700 font-semibold text-xs transition"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmExport}
-                className="h-10 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-md transition shadow-sm flex items-center gap-1.5"
-              >
-                <FileSpreadsheet size={14} /> Exportar CSV
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* Modal de Exportação */}
+      <ExportCsvModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        collaboratorsList={collaboratorsList}
+        employeeMap={employeeMap}
+        onConfirmExport={(emp, start, end) => {
+          const res = exportPunchesToCsv(punches, emp, start, end, employeeMap);
+          return res.error;
+        }}
+      />
     </div>
   );
 }
