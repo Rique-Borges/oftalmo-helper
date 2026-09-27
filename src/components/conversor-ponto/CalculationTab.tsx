@@ -11,7 +11,8 @@ import {
   Clock, 
   TrendingUp, 
   TrendingDown, 
-  FileSpreadsheet 
+  FileSpreadsheet,
+  CheckSquare
 } from "lucide-react";
 import { EmployeeRow, Holiday, MedicalCertificate, EmployeeCategory, Punch } from "@/lib/conversor-ponto/types";
 import { parseHHMMToMinutes, formatMinutesToHHMM, daysOfWeekBr } from "@/lib/conversor-ponto/utils";
@@ -54,8 +55,12 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
   const [certificates, setCertificates] = useState<MedicalCertificate[]>([]);
   const [newHolidayDate, setNewHolidayDate] = useState("2026-07-01");
   const [newHolidayDesc, setNewHolidayDesc] = useState("");
+
+  // Formulário de Atestados / Declarações
   const [newCertDate, setNewCertDate] = useState("2026-07-01");
   const [newCertEmployee, setNewCertEmployee] = useState("all");
+  const [newCertType, setNewCertType] = useState<"full" | "hours">("full");
+  const [newCertHours, setNewCertHours] = useState("02:00");
   const [newCertReason, setNewCertReason] = useState("");
 
   const handleCategoryChange = (category: EmployeeCategory) => {
@@ -81,13 +86,18 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
 
   const handleAddCertificate = () => {
     if (!newCertDate || (!calcEmployee && newCertEmployee === "all")) return;
+    const certMinutes = newCertType === "hours" ? parseHHMMToMinutes(newCertHours) : 0;
+
     setCertificates(prev => [
       ...prev,
       {
         id: Date.now().toString(),
         dateStr: newCertDate,
         rawId: newCertEmployee === "all" ? (calcEmployee !== "all" ? calcEmployee : "all") : newCertEmployee,
-        reason: newCertReason.trim() || "Atestado Médico / Falta Abonada"
+        type: newCertType,
+        hours: newCertType === "hours" ? newCertHours : undefined,
+        minutes: certMinutes,
+        reason: newCertReason.trim() || (newCertType === "full" ? "Atestado Médico (Dia Todo)" : `Declaração de ${newCertHours}h`)
       }
     ]);
     setNewCertReason("");
@@ -108,11 +118,11 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
 
   const calcEmployeeReport = useMemo(() => {
     if (!calcEmployee || calcEmployee === "all" || calcDatesRange.length === 0) {
-      return { days: [], summary: { totalWorked: 0, totalExpected: 0, totalOvertime: 0, totalPending: 0, finalBalance: 0 } };
+      return { days: [], summary: { totalWorked: 0, totalExpected: 0, totalOvertime: 0, totalPending: 0, totalExcused: 0, finalBalance: 0 } };
     }
 
     const employeePunches = punches.filter(p => p.rawId === calcEmployee);
-    let totalWorked = 0, totalExpected = 0, totalOvertime = 0, totalPending = 0;
+    let totalWorked = 0, totalExpected = 0, totalOvertime = 0, totalPending = 0, totalExcused = 0;
 
     const calculatedDays = calcDatesRange.map(dateStr => {
       const currentDateObj = new Date(dateStr + "T00:00:00");
@@ -129,8 +139,19 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
       let expectedMinutes = parseHHMMToMinutes(expectedLoadStr);
       const isHoliday = !!holidayInfo;
       const isCertificate = !!certInfo;
+      const isFullDayCert = isCertificate && certInfo.type === "full";
 
-      if (isHoliday || isCertificate) expectedMinutes = 0;
+      let excusedMinutes = 0;
+      if (isFullDayCert) {
+        excusedMinutes = expectedMinutes;
+        expectedMinutes = 0;
+      } else if (isCertificate && certInfo.type === "hours") {
+        excusedMinutes = certInfo.minutes || 0;
+      }
+
+      if (isHoliday) {
+        expectedMinutes = 0;
+      }
 
       let workedMinutes = 0;
       const isOddPunches = dayPunches.length % 2 !== 0;
@@ -145,9 +166,14 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
       let overtimeMinutes = 0;
       let pendingMinutes = 0;
 
-      if (!isHoliday && !isCertificate) {
-        if (workedMinutes > expectedMinutes) overtimeMinutes = workedMinutes - expectedMinutes;
-        else if (workedMinutes < expectedMinutes) pendingMinutes = expectedMinutes - workedMinutes;
+      if (!isHoliday && !isFullDayCert) {
+        // Horas trabalhadas + horas abonadas pela declaração
+        const effectiveCoveredMinutes = workedMinutes + excusedMinutes;
+        if (effectiveCoveredMinutes > expectedMinutes) {
+          overtimeMinutes = effectiveCoveredMinutes - expectedMinutes;
+        } else if (effectiveCoveredMinutes < expectedMinutes) {
+          pendingMinutes = expectedMinutes - effectiveCoveredMinutes;
+        }
       } else {
         if (workedMinutes > 0) overtimeMinutes = workedMinutes;
       }
@@ -156,6 +182,7 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
       totalExpected += expectedMinutes;
       totalOvertime += overtimeMinutes;
       totalPending += pendingMinutes;
+      totalExcused += excusedMinutes;
 
       const punchesListText = dayPunches.map(p => {
         const h = String(p.dateObj.getHours()).padStart(2, "0");
@@ -172,7 +199,9 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
         isHoliday,
         holidayDesc: holidayInfo?.description,
         isCertificate,
+        certType: certInfo?.type,
         certReason: certInfo?.reason,
+        excusedMinutes,
         workedMinutes,
         expectedMinutes,
         overtimeMinutes,
@@ -183,7 +212,7 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
     const finalBalance = totalOvertime - totalPending;
     return {
       days: calculatedDays,
-      summary: { totalWorked, totalExpected, totalOvertime, totalPending, finalBalance }
+      summary: { totalWorked, totalExpected, totalOvertime, totalPending, totalExcused, finalBalance }
     };
   }, [calcEmployee, calcDatesRange, punches, schedule, holidays, certificates]);
 
@@ -322,47 +351,94 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
           </div>
         </div>
 
-        {/* Atestados */}
+        {/* Atestados & Declaração de Horas */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
           <h3 className="font-bold text-slate-950 flex items-center gap-2">
-            <FileText size={18} className="text-emerald-600" /> Atestados & Faltas Abonadas
+            <FileText size={18} className="text-emerald-600" /> Atestados & Declarações
           </h3>
-          <div className="space-y-2">
-            <input
-              type="date"
-              value={newCertDate}
-              onChange={(e) => setNewCertDate(e.target.value)}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs"
-            />
+
+          <div className="space-y-2.5">
+            {/* Seletor de Tipo */}
+            <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setNewCertType("full")}
+                className={`py-1.5 rounded-md transition ${newCertType === "full" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+              >
+                🏥 Atestado (Dia)
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewCertType("hours")}
+                className={`py-1.5 rounded-md transition ${newCertType === "hours" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+              >
+                ⏱️ Declaração (Horas)
+              </button>
+            </div>
+
+            <div className={`grid ${newCertType === "hours" ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
+              <div>
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Data</label>
+                <input
+                  type="date"
+                  value={newCertDate}
+                  onChange={(e) => setNewCertDate(e.target.value)}
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs"
+                />
+              </div>
+              {newCertType === "hours" && (
+                <div>
+                  <label className="text-[10px] text-slate-400 font-bold uppercase">Horas a Abonar</label>
+                  <input
+                    type="text"
+                    placeholder="02:00"
+                    value={newCertHours}
+                    onChange={(e) => setNewCertHours(e.target.value.replace(/[^0-9:]/g, ""))}
+                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs font-mono text-center font-bold text-slate-800"
+                  />
+                </div>
+              )}
+            </div>
+
             <select
               value={newCertEmployee}
               onChange={(e) => setNewCertEmployee(e.target.value)}
               className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs"
             >
-              <option value="all">👥 Para o Colaborador Atual</option>
+              <option value="all">👥 Para o Colaborador Selecionado</option>
               {collaboratorsList.map(emp => (
                 <option key={emp.rawId} value={emp.rawId}>{emp.name}</option>
               ))}
             </select>
+
             <input
               type="text"
-              placeholder="Motivo (Ex: Consulta Médica)..."
+              placeholder={newCertType === "full" ? "Motivo (Ex: Repouso Médico)..." : "Motivo (Ex: Consulta Médica, Exame)..."}
               value={newCertReason}
               onChange={(e) => setNewCertReason(e.target.value)}
               className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-xs"
             />
+
             <button
               onClick={handleAddCertificate}
               className="w-full h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-md transition flex items-center justify-center gap-1.5 shadow-sm"
             >
-              <Plus size={14} /> Registrar Atestado
+              <Plus size={14} /> Registrar {newCertType === "full" ? "Atestado" : "Declaração"}
             </button>
           </div>
-          <div className="space-y-1.5 max-h-36 overflow-y-auto divide-y divide-slate-100">
+
+          <div className="space-y-1.5 max-h-40 overflow-y-auto divide-y divide-slate-100">
             {certificates.map(c => (
               <div key={c.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
                 <div>
-                  <span className="font-bold text-slate-900">{new Date(c.dateStr + "T00:00:00").toLocaleDateString("pt-BR")}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-slate-900">{new Date(c.dateStr + "T00:00:00").toLocaleDateString("pt-BR")}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                      c.type === "hours" ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    }`}>
+                      {c.type === "hours" ? `⏱️ Declaração (${c.hours}h)` : "🏥 Atestado (Integral)"}
+                    </span>
+                  </div>
                   <span className="block text-[11px] text-indigo-600 font-medium">{c.rawId === "all" ? "Geral" : employeeMap.get(c.rawId)}</span>
                   <span className="block text-[10px] text-slate-500">{c.reason}</span>
                 </div>
@@ -384,8 +460,8 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
             onChange={(e) => handleCategoryChange(e.target.value as EmployeeCategory)}
             className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
           >
-            <option value="comercial">💼 Horário Comercial (8h Seg-Sex)</option>
-            <option value="call_center">🎧 Call Center (6h Seg-Sex / 4h Sáb)</option>
+            <option value="comercial">💼 Horário Comercial (8h Seg-Sex / 4h Sáb)</option>
+            <option value="call_center">🎧 Call Center (6h Seg-Sex / 6h Sáb)</option>
             <option value="estagiario">🎓 Estagiário (6h Seg-Sex)</option>
             <option value="custom">⚙️ Personalizado</option>
           </select>
@@ -413,34 +489,40 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
       <div className="lg:col-span-8 space-y-6">
         {calcEmployee && calcEmployee !== "all" ? (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
                 <p className="text-[10px] font-bold text-slate-400 uppercase">Trabalhadas</p>
-                <h3 className="text-lg font-extrabold text-slate-900 font-mono mt-1">
+                <h3 className="text-base font-extrabold text-slate-900 font-mono mt-1">
                   {formatMinutesToHHMM(calcEmployeeReport.summary.totalWorked)}
                 </h3>
               </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Abonadas</p>
+                <h3 className="text-base font-extrabold text-indigo-600 font-mono mt-1">
+                  {formatMinutesToHHMM(calcEmployeeReport.summary.totalExcused)}
+                </h3>
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
                 <p className="text-[10px] font-bold text-slate-400 uppercase">Esperadas</p>
-                <h3 className="text-lg font-extrabold text-slate-900 font-mono mt-1">
+                <h3 className="text-base font-extrabold text-slate-900 font-mono mt-1">
                   {formatMinutesToHHMM(calcEmployeeReport.summary.totalExpected)}
                 </h3>
               </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-bold text-slate-400 uppercase">Extras (+)</p>
-                  <TrendingUp size={14} className="text-emerald-500" />
+                  <TrendingUp size={13} className="text-emerald-500" />
                 </div>
-                <h3 className="text-lg font-extrabold text-emerald-600 font-mono mt-1">
+                <h3 className="text-base font-extrabold text-emerald-600 font-mono mt-1">
                   {formatMinutesToHHMM(calcEmployeeReport.summary.totalOvertime)}
                 </h3>
               </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-bold text-slate-400 uppercase">Faltas (-)</p>
-                  <TrendingDown size={14} className="text-red-500" />
+                  <TrendingDown size={13} className="text-red-500" />
                 </div>
-                <h3 className="text-lg font-extrabold text-red-600 font-mono mt-1">
+                <h3 className="text-base font-extrabold text-red-600 font-mono mt-1">
                   {formatMinutesToHHMM(calcEmployeeReport.summary.totalPending)}
                 </h3>
               </div>
@@ -479,22 +561,23 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase">
-                      <th className="py-3 px-4">Data</th>
-                      <th className="py-3 px-4">Marcações</th>
-                      <th className="py-3 px-4">Ocorrência</th>
-                      <th className="py-3 px-4 text-center">Trabalhado</th>
-                      <th className="py-3 px-4 text-center">Esperado</th>
-                      <th className="py-3 px-4 text-right">Saldo</th>
+                      <th className="py-3 px-3">Data</th>
+                      <th className="py-3 px-3">Marcações</th>
+                      <th className="py-3 px-3">Ocorrência</th>
+                      <th className="py-3 px-3 text-center">Abonado</th>
+                      <th className="py-3 px-3 text-center">Trabalhado</th>
+                      <th className="py-3 px-3 text-center">Esperado</th>
+                      <th className="py-3 px-3 text-right">Saldo</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
                     {calcEmployeeReport.days.map((day: any) => (
                       <tr key={day.dateStr} className="hover:bg-slate-50/40 transition">
-                        <td className="py-3 px-4 font-medium text-slate-900">
+                        <td className="py-3 px-3 font-medium text-slate-900 whitespace-nowrap">
                           {day.formattedDate}
                           <span className="block text-[10px] text-slate-400 font-normal">{day.dayName}</span>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="py-3 px-3">
                           {day.punchesList ? (
                             <span className="font-mono text-slate-700 bg-slate-50 border border-slate-150 px-2 py-0.5 rounded">
                               {day.punchesList}
@@ -508,14 +591,21 @@ export const CalculationTab: React.FC<CalculationTabProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="py-3 px-3">
                           {day.isHoliday && <span className="text-amber-800 font-bold">🌴 Feriado</span>}
-                          {day.isCertificate && <span className="text-emerald-800 font-bold">🏥 Atestado</span>}
+                          {day.isCertificate && (
+                            <span className={`font-bold ${day.certType === "hours" ? "text-blue-700" : "text-emerald-700"}`}>
+                              {day.certType === "hours" ? `⏱️ ${day.certReason}` : `🏥 ${day.certReason}`}
+                            </span>
+                          )}
                           {!day.isHoliday && !day.isCertificate && <span className="text-slate-400">-</span>}
                         </td>
-                        <td className="py-3 px-4 text-center font-mono">{day.workedMinutes > 0 ? formatMinutesToHHMM(day.workedMinutes) : "-"}</td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-500">{day.expectedMinutes > 0 ? formatMinutesToHHMM(day.expectedMinutes) : "-"}</td>
-                        <td className="py-3 px-4 text-right font-mono">
+                        <td className="py-3 px-3 text-center font-mono text-indigo-600 font-semibold">
+                          {day.excusedMinutes > 0 ? formatMinutesToHHMM(day.excusedMinutes) : "-"}
+                        </td>
+                        <td className="py-3 px-3 text-center font-mono">{day.workedMinutes > 0 ? formatMinutesToHHMM(day.workedMinutes) : "-"}</td>
+                        <td className="py-3 px-3 text-center font-mono text-slate-500">{day.expectedMinutes > 0 ? formatMinutesToHHMM(day.expectedMinutes) : "-"}</td>
+                        <td className="py-3 px-3 text-right font-mono">
                           {day.overtimeMinutes > 0 && <span className="text-emerald-600 font-bold">+{formatMinutesToHHMM(day.overtimeMinutes)}</span>}
                           {day.pendingMinutes > 0 && <span className="text-red-500">-{formatMinutesToHHMM(day.pendingMinutes)}</span>}
                           {day.overtimeMinutes === 0 && day.pendingMinutes === 0 && <span className="text-slate-400">-</span>}

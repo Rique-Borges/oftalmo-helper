@@ -15,7 +15,7 @@ import { CalculationTab } from "@/components/conversor-ponto/CalculationTab";
 import { ExportCsvModal } from "@/components/conversor-ponto/ExportCsvModal";
 
 export default function AfdConverterPage() {
-  const [activeTab, setActiveTab] = useState<"batidas" | "colaboradores" | "calculo">("batidas");
+  const [activeTab, setActiveTab] = useState<"batidas" | "colaboradores" | "calculo">("calculo");
   const [punches, setPunches] = useState<Punch[]>([]);
   const [employeeMap, setEmployeeMap] = useState<Map<string, string>>(new Map());
   const [fileName, setFileName] = useState<string>("");
@@ -188,6 +188,16 @@ export default function AfdConverterPage() {
           {/* Navegação de Abas */}
           <div className="flex flex-wrap border-b border-slate-200">
             <button
+              onClick={() => { setActiveTab("calculo"); clearFilters(); }}
+              className={`py-3 px-6 text-sm font-semibold transition border-b-2 -mb-px flex items-center gap-2 ${
+                activeTab === "calculo"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Settings size={16} /> Cálculo & Fechamento de Horas
+            </button>
+            <button
               onClick={() => { setActiveTab("batidas"); clearFilters(); }}
               className={`py-3 px-6 text-sm font-semibold transition border-b-2 -mb-px flex items-center gap-2 ${
                 activeTab === "batidas"
@@ -206,16 +216,6 @@ export default function AfdConverterPage() {
               }`}
             >
               <Users size={16} /> Colaboradores ({collaboratorsList.length})
-            </button>
-            <button
-              onClick={() => { setActiveTab("calculo"); clearFilters(); }}
-              className={`py-3 px-6 text-sm font-semibold transition border-b-2 -mb-px flex items-center gap-2 ${
-                activeTab === "calculo"
-                  ? "border-indigo-600 text-indigo-600"
-                  : "border-transparent text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              <Settings size={16} /> Cálculo & Fechamento de Horas
             </button>
           </div>
 

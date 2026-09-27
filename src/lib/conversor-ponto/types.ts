@@ -23,9 +23,12 @@ export interface Holiday {
 
 export interface MedicalCertificate {
   id: string;
-  rawId: string; // "all" ou ID do colaborador
-  dateStr: string; // yyyy-mm-dd
+  dateStr: string;
+  rawId: string;
   reason: string;
+  type: "full" | "hours"; // "full" = Atestado dia todo | "hours" = Declaração de horas
+  hours?: string;         // Ex: "02:00"
+  minutes?: number;       // Ex: 120
 }
 
 export type SortField = "name" | "cleanId" | "dateObj";

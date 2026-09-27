@@ -43,17 +43,39 @@ export function exportCalculatedReportCsv(
   const employeeName = employeeMap.get(calcEmployee) || "Colaborador";
   const employeeCPF = formatCPFOrPIS(calcEmployee);
 
-  const headers = ["Data", "Dia da Semana", "Marcacoes de Ponto", "Ocorrencia/Abono", "Trabalhado (HH:MM)", "Carga Esperada (HH:MM)", "Hora Extra (HH:MM)", "Pendente/Falta (HH:MM)"];
-  const rows = report.days.map((d: any) => [
-    d.dateStr,
-    d.dayName,
-    d.punchesList || "Sem batida",
-    d.isHoliday ? `Feriado: ${d.holidayDesc}` : d.isCertificate ? `Atestado: ${d.certReason}` : "Normal",
-    formatMinutesToHHMM(d.workedMinutes),
-    formatMinutesToHHMM(d.expectedMinutes),
-    formatMinutesToHHMM(d.overtimeMinutes),
-    formatMinutesToHHMM(d.pendingMinutes)
-  ]);
+  const headers = [
+    "Data",
+    "Dia da Semana",
+    "Marcacoes de Ponto",
+    "Ocorrencia/Abono",
+    "Horas Abonadas (HH:MM)",
+    "Trabalhado (HH:MM)",
+    "Carga Esperada (HH:MM)",
+    "Hora Extra (HH:MM)",
+    "Pendente/Falta (HH:MM)"
+  ];
+
+  const rows = report.days.map((d: any) => {
+    let ocorrencia = "Normal";
+    if (d.isHoliday) ocorrencia = `Feriado: ${d.holidayDesc}`;
+    else if (d.isCertificate) {
+      ocorrencia = d.certType === "hours" 
+        ? `Declaracao (${formatMinutesToHHMM(d.excusedMinutes)}): ${d.certReason}` 
+        : `Atestado (Dia Todo): ${d.certReason}`;
+    }
+
+    return [
+      d.dateStr,
+      d.dayName,
+      d.punchesList || "Sem batida",
+      ocorrencia,
+      d.excusedMinutes > 0 ? formatMinutesToHHMM(d.excusedMinutes) : "00:00",
+      formatMinutesToHHMM(d.workedMinutes),
+      formatMinutesToHHMM(d.expectedMinutes),
+      formatMinutesToHHMM(d.overtimeMinutes),
+      formatMinutesToHHMM(d.pendingMinutes)
+    ];
+  });
 
   const s = report.summary;
   const summaryRows = [
@@ -63,6 +85,7 @@ export function exportCalculatedReportCsv(
     ["CPF/PIS", employeeCPF],
     ["Periodo", `${calcStartDate} ate ${calcEndDate}`],
     ["Total Horas Trabalhadas", formatMinutesToHHMM(s.totalWorked)],
+    ["Total Horas Abonadas", formatMinutesToHHMM(s.totalExcused || 0)],
     ["Total Carga Esperada", formatMinutesToHHMM(s.totalExpected)],
     ["Total Horas Extras", formatMinutesToHHMM(s.totalOvertime)],
     ["Total Horas Pendentes", formatMinutesToHHMM(s.totalPending)],
