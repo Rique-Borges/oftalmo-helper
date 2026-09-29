@@ -41,7 +41,7 @@ const plans = [
     name: "Operacional",
     description:
       "Para manter o atendimento ágil e automatizar a rotina diária do ponto.",
-    price: "300",
+    price: "400",
     highlight: false,
     features: [
       "Colinha dinâmica Médico × Exame × Preparo",
@@ -57,7 +57,7 @@ const plans = [
     name: "Gestão Integrada",
     description:
       "Controle gerencial, pré-folha e uma operação de RH muito mais organizada.",
-    price: "700",
+    price: "675",
     highlight: true,
     features: [
       "Tudo do plano Operacional",
