@@ -595,11 +595,11 @@ export default function ComercialPage() {
                         Investimento
                       </div>
                       <div className="mt-1 text-3xl font-semibold">
-                        R$ 1.400
+                        R$ 1.350
                       </div>
                     </div>
 
-                    <Badge>2× R$ 700</Badge>
+                    <Badge>2× R$ 675</Badge>
                   </div>
                 </CardContent>
               </Card>
@@ -949,7 +949,7 @@ export default function ComercialPage() {
               {
                 icon: Sparkles,
                 title: "Contrato anual",
-                text: "50% de desconto no setup ou 1 mensalidade gratuita.",
+                text: "30% de desconto no setup ou 1 mensalidade gratuita.",
               },
             ].map(({ icon: Icon, title, text }, index) => (
               <FadeIn key={title} delay={index * 0.07}>
