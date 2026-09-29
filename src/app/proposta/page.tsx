@@ -41,7 +41,7 @@ const plans = [
     name: "Operacional",
     description:
       "Para manter o atendimento ágil e automatizar a rotina diária do ponto.",
-    price: "550",
+    price: "300",
     highlight: false,
     features: [
       "Colinha dinâmica Médico × Exame × Preparo",
@@ -57,7 +57,7 @@ const plans = [
     name: "Gestão Integrada",
     description:
       "Controle gerencial, pré-folha e uma operação de RH muito mais organizada.",
-    price: "950",
+    price: "700",
     highlight: true,
     features: [
       "Tudo do plano Operacional",
@@ -74,13 +74,12 @@ const plans = [
     name: "Operação Avançada",
     description:
       "Integrações, autosserviço e automações para uma operação mais conectada.",
-    price: "1.800",
+    price: "1.250",
     highlight: false,
     features: [
       "Tudo do plano Gestão Integrada",
       "Integração com dados do sistema de agendamento",
       "Portal mobile do colaborador",
-      "Envio de atestados pelo celular",
       "2h/mês de desenvolvimento",
       "Suporte prioritário via WhatsApp",
     ],
@@ -145,7 +144,7 @@ const addons = [
   ["Cálculo de Remuneração", "Hora extra, Descanso Semanal Remunerado e descontos", "250"],
   ["Espelho de Ponto PDF", "Geração de espelhos individuais", "180"],
   ["Ponte de Dados Moderna", "Importação e cruzamento de agenda", "350"],
-  ["Envio de Atestados", "Upload mobile pelo colaborador", "200"],
+  ["Dossiê do Colaborador", "Geração de dossiês individuais", "200"],
 ];
 
 function FadeIn({
@@ -596,11 +595,11 @@ export default function ComercialPage() {
                         Investimento
                       </div>
                       <div className="mt-1 text-3xl font-semibold">
-                        R$ 2.200
+                        R$ 1.400
                       </div>
                     </div>
 
-                    <Badge>2× R$ 1.100</Badge>
+                    <Badge>2× R$ 700</Badge>
                   </div>
                 </CardContent>
               </Card>
